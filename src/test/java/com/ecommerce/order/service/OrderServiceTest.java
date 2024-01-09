@@ -54,15 +54,16 @@ public class OrderServiceTest {
     @Test
     void testCreateOrder() {
         // given
+        LocalDateTime now = LocalDateTime.now();
         var orderDTO = OrderDTO.builder()
                 .customerId("user_1")
-                .orderDate(LocalDateTime.now())
+                .orderDate(now)
                 .orderItems(new ArrayList<>())
                 .build();
 
         var order = Order.builder()
                 .customerId("user_1")
-                .orderDate(LocalDateTime.now())
+                .orderDate(now)
                 .orderItems(new ArrayList<>())
                 .build();
 
