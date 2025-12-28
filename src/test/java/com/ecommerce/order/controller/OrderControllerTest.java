@@ -1,13 +1,12 @@
 package com.ecommerce.order.controller;
 
-import com.ecommerce.order.dto.OrderDTO;
 import com.ecommerce.order.service.OrderService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import tools.jackson.databind.ObjectMapper;
 
 import static com.ecommerce.order.service.OrderService.HELLO_FROM_ORDER_SERVICE;
 import static com.ecommerce.order.util.TestUtil.generateOrderDTO;
@@ -27,7 +26,7 @@ class OrderControllerTest {
     @Autowired
     private ObjectMapper objectMapper;
 
-    @MockBean
+    @MockitoBean
     private OrderService orderService;
 
     @Test
@@ -36,10 +35,7 @@ class OrderControllerTest {
         given(orderService.getHelloMessage()).willReturn(HELLO_FROM_ORDER_SERVICE);
 
         // Perform GET request and verify
-        mockMvc.perform(get("/orders/hello"))
-                .andDo(print())
-                .andExpect(status().isOk())
-                .andExpect(content().string(HELLO_FROM_ORDER_SERVICE));
+        mockMvc.perform(get("/orders/hello")).andDo(print()).andExpect(status().isOk()).andExpect(content().string(HELLO_FROM_ORDER_SERVICE));
     }
 
     @Test
@@ -50,10 +46,7 @@ class OrderControllerTest {
         given(orderService.createOrder("user_1")).willReturn(orderDTO);
 
         // Perform GET request and verify
-        mockMvc.perform(post("/orders").param("customerId", "user_1"))
-                .andDo(print())
-                .andExpect(status().isOk())
-                .andExpect(content().string(objectMapper.writeValueAsString(orderDTO)));
+        mockMvc.perform(post("/orders").param("customerId", "user_1")).andDo(print()).andExpect(status().isOk()).andExpect(content().string(objectMapper.writeValueAsString(orderDTO)));
     }
 
     @Test
@@ -64,11 +57,6 @@ class OrderControllerTest {
         given(orderService.addProductToOrder(1L, "nike_1")).willReturn(orderDTO);
 
         // Perform GET request and verify
-        mockMvc.perform(post("/orders/" + "1" + "/products")
-                        .param("productId", "nike_1")
-                )
-                .andDo(print())
-                .andExpect(status().isOk())
-                .andExpect(content().string(objectMapper.writeValueAsString(orderDTO)));
+        mockMvc.perform(post("/orders/" + "1" + "/products").param("productId", "nike_1")).andDo(print()).andExpect(status().isOk()).andExpect(content().string(objectMapper.writeValueAsString(orderDTO)));
     }
 }
