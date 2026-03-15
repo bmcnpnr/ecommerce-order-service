@@ -7,8 +7,7 @@ import com.ecommerce.order.model.OrderItem;
 import org.junit.jupiter.api.Test;
 import org.modelmapper.ModelMapper;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 
 import java.util.List;
 
@@ -18,8 +17,7 @@ import static com.ecommerce.order.util.TestUtil.generateOrderItemDTO;
 import static com.ecommerce.order.util.TestUtil.generateOrderItemEntity;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-@SpringBootTest
-@ActiveProfiles("test")
+@SpringJUnitConfig(AppConfig.class)
 class ModelMapperTest {
 
     @Autowired

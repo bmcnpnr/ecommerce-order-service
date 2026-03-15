@@ -99,9 +99,6 @@
             <version>${springdoc.version}</version>
         </dependency>
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-        <!-- 250025002500 Observability 25002500250025002500250025002500250025002500250025002500250025002500250025002500250025002500250025002500250025002500250025002500250025002500250025002500250025002500250025002500 -->
-        <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
@@ -113,7 +110,10 @@
             <groupId>io.opentelemetry</groupId>
             <artifactId>opentelemetry-exporter-otlp</artifactId>
         </dependency>
-            <!-- Test -->
+        
+        <!-- Test -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
