@@ -1,9 +1,6 @@
 package com.ecommerce.order.dto;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -13,18 +10,13 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public final class OrderDTO {
+public class OrderDTO {
     private Long orderId;
-
     private String customerId;
-
     private List<OrderItemDTO> orderItems;
-
     private LocalDateTime orderDate;
-
     private String billingAddress;
-
     private String shippingAddress;
-
     private BigDecimal totalAmount;
+    private String status;
 }

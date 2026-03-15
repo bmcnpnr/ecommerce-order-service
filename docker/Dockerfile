@@ -1,11 +1,6 @@
-FROM openjdk:21-jdk
-
+FROM eclipse-temurin:25-jdk-alpine
 COPY ./target/order-service-*.jar /usr/app/app.jar
-
 WORKDIR /usr/app
-
-RUN sh -c 'touch app.jar'
-
+RUN touch app.jar
 ENTRYPOINT ["java", "-jar", "app.jar"]
-
-EXPOSE 8081
+EXPOSE 8084

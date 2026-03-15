@@ -8,7 +8,6 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.ObjectMapper;
 
-import static com.ecommerce.order.service.OrderService.HELLO_FROM_ORDER_SERVICE;
 import static com.ecommerce.order.util.TestUtil.generateOrderDTO;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -31,32 +30,35 @@ class OrderControllerTest {
 
     @Test
     void testSayHello() throws Exception {
-        // Mocking service response
-        given(orderService.getHelloMessage()).willReturn(HELLO_FROM_ORDER_SERVICE);
+        given(orderService.getHelloMessage()).willReturn("Hello from Order Service!");
 
-        // Perform GET request and verify
-        mockMvc.perform(get("/orders/hello")).andDo(print()).andExpect(status().isOk()).andExpect(content().string(HELLO_FROM_ORDER_SERVICE));
+        mockMvc.perform(get("/api/v1/orders/hello"))
+                .andDo(print())
+                .andExpect(status().isOk())
+                .andExpect(content().string("Hello from Order Service!"));
     }
 
     @Test
     void testCreateOrder() throws Exception {
         var orderDTO = generateOrderDTO();
 
-        // Mocking service response
         given(orderService.createOrder("user_1")).willReturn(orderDTO);
 
-        // Perform GET request and verify
-        mockMvc.perform(post("/orders").param("customerId", "user_1")).andDo(print()).andExpect(status().isOk()).andExpect(content().string(objectMapper.writeValueAsString(orderDTO)));
+        mockMvc.perform(post("/api/v1/orders").param("customerId", "user_1"))
+                .andDo(print())
+                .andExpect(status().isCreated())
+                .andExpect(content().string(objectMapper.writeValueAsString(orderDTO)));
     }
 
     @Test
-    void testAddItemToOrder() throws Exception {
+    void testGetOrderById() throws Exception {
         var orderDTO = generateOrderDTO();
 
-        // Mocking service response
-        given(orderService.addProductToOrder(1L, "nike_1")).willReturn(orderDTO);
+        given(orderService.getOrderById(1L)).willReturn(orderDTO);
 
-        // Perform GET request and verify
-        mockMvc.perform(post("/orders/" + "1" + "/products").param("productId", "nike_1")).andDo(print()).andExpect(status().isOk()).andExpect(content().string(objectMapper.writeValueAsString(orderDTO)));
+        mockMvc.perform(get("/api/v1/orders/1"))
+                .andDo(print())
+                .andExpect(status().isOk())
+                .andExpect(content().string(objectMapper.writeValueAsString(orderDTO)));
     }
 }

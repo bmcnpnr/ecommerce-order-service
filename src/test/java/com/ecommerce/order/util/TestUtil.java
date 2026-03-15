@@ -2,6 +2,7 @@ package com.ecommerce.order.util;
 
 import com.ecommerce.order.model.Order;
 import com.ecommerce.order.model.OrderItem;
+import com.ecommerce.order.model.OrderStatus;
 import com.ecommerce.order.dto.OrderDTO;
 import com.ecommerce.order.dto.OrderItemDTO;
 import lombok.experimental.UtilityClass;
@@ -21,6 +22,7 @@ public class TestUtil {
                 .billingAddress("Eindhoven")
                 .shippingAddress("Eindhoven")
                 .totalAmount(BigDecimal.ONE)
+                .status("PENDING")
                 .build();
     }
 
@@ -33,6 +35,7 @@ public class TestUtil {
                 .billingAddress("Eindhoven")
                 .shippingAddress("Eindhoven")
                 .totalAmount(BigDecimal.ONE)
+                .status(OrderStatus.PENDING)
                 .build();
     }
 
@@ -40,19 +43,21 @@ public class TestUtil {
         return OrderItem.builder()
                 .orderItemId(1L)
                 .order(order)
-                .productId("nike_1")
+                .productId(1L)
                 .productName("nike shoes")
                 .productPrice(BigDecimal.valueOf(1.5))
+                .quantity(1)
                 .build();
     }
 
-    public static OrderItemDTO generateOrderItemDTO(final OrderDTO orderDTO) {
+    public static OrderItemDTO generateOrderItemDTO(final Long orderId) {
         return OrderItemDTO.builder()
                 .orderItemId(1L)
-                .order(orderDTO)
-                .productId("nike_1")
+                .orderId(orderId)
+                .productId(1L)
                 .productName("nike shoes")
                 .productPrice(BigDecimal.valueOf(1.5))
+                .quantity(1)
                 .build();
     }
 }

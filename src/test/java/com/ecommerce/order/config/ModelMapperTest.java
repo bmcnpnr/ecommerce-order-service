@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.modelmapper.ModelMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 
 import java.util.List;
 
@@ -18,6 +19,7 @@ import static com.ecommerce.order.util.TestUtil.generateOrderItemEntity;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 @SpringBootTest
+@ActiveProfiles("test")
 class ModelMapperTest {
 
     @Autowired
@@ -26,7 +28,7 @@ class ModelMapperTest {
     @Test
     void testOrderDtoToEntity() {
         final var orderDTO = generateOrderDTO();
-        orderDTO.setOrderItems(List.of(generateOrderItemDTO(orderDTO)));
+        orderDTO.setOrderItems(List.of(generateOrderItemDTO(orderDTO.getOrderId())));
 
         final var order = modelMapper.map(orderDTO, Order.class);
         assertEquals(orderDTO.getOrderId(), order.getOrderId());
@@ -42,7 +44,6 @@ class ModelMapperTest {
             OrderItemDTO orderItemDTO = orderDTO.getOrderItems().get(i);
             OrderItem orderItemEntity = order.getOrderItems().get(i);
             assertEquals(orderItemDTO.getOrderItemId(), orderItemEntity.getOrderItemId());
-            assertEquals(orderItemDTO.getOrder().getOrderId(), orderItemEntity.getOrder().getOrderId());
             assertEquals(orderItemDTO.getProductId(), orderItemEntity.getProductId());
             assertEquals(orderItemDTO.getProductName(), orderItemEntity.getProductName());
             assertEquals(orderItemDTO.getProductPrice(), orderItemEntity.getProductPrice());
@@ -68,7 +69,6 @@ class ModelMapperTest {
             OrderItem orderItemEntity = order.getOrderItems().get(i);
             OrderItemDTO orderItemDTO = orderDTO.getOrderItems().get(i);
             assertEquals(orderItemEntity.getOrderItemId(), orderItemDTO.getOrderItemId());
-            assertEquals(orderItemEntity.getOrder().getOrderId(), orderItemDTO.getOrder().getOrderId());
             assertEquals(orderItemEntity.getProductId(), orderItemDTO.getProductId());
             assertEquals(orderItemEntity.getProductName(), orderItemDTO.getProductName());
             assertEquals(orderItemEntity.getProductPrice(), orderItemDTO.getProductPrice());

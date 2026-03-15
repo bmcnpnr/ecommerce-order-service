@@ -1,9 +1,6 @@
 package com.ecommerce.order.dto;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 import java.math.BigDecimal;
 
@@ -13,12 +10,9 @@ import java.math.BigDecimal;
 @Builder
 public class OrderItemDTO {
     private Long orderItemId;
-
-    private OrderDTO order;
-
-    private String productId;
-
+    private Long orderId;        // Only the ID, no circular OrderDTO reference
+    private Long productId;
     private String productName;
-
     private BigDecimal productPrice;
+    private Integer quantity;
 }

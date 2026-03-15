@@ -1,67 +1,195 @@
 package com.ecommerce.order.service;
 
-import com.ecommerce.order.dto.OrderDTO;
-import com.ecommerce.order.model.Order;
-import com.ecommerce.order.model.OrderItem;
+import com.ecommerce.order.client.ProductServiceClient;
+import com.ecommerce.order.dto.*;
+import com.ecommerce.order.event.*;
+import com.ecommerce.order.exception.*;
+import com.ecommerce.order.messaging.OrderEventProducer;
+import com.ecommerce.order.model.*;
 import com.ecommerce.order.repository.OrderRepository;
+import lombok.RequiredArgsConstructor;
 import org.modelmapper.ModelMapper;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-
-//todo make db ops transactional?
+import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
-public final class OrderService {
+@RequiredArgsConstructor
+public class OrderService {
 
-    public static final String HELLO_FROM_ORDER_SERVICE = "Hello from Order Service!";
+    private static final Logger log = LoggerFactory.getLogger(OrderService.class);
 
     private final OrderRepository orderRepository;
-
-    private final ModelMapper modelMapper;
-
     private final ProductServiceClient productServiceClient;
-
-    @Autowired
-    public OrderService(final OrderRepository orderRepository, final ModelMapper modelMapper, final ProductServiceClient productServiceClient) {
-        this.orderRepository = orderRepository;
-        this.modelMapper = modelMapper;
-        this.productServiceClient = productServiceClient;
-    }
-
-    // Constructor, business methods
+    private final ModelMapper modelMapper;
+    private final OrderEventProducer orderEventProducer;
 
     public String getHelloMessage() {
-        return HELLO_FROM_ORDER_SERVICE;
+        return "Hello from Order Service!";
     }
 
-    public OrderDTO createOrder(final String customerId) {
-        var order = Order.builder()
+    @Transactional
+    public OrderDTO createOrder(String customerId) {
+        log.info("Creating order for customer: {}", customerId);
+        Order order = Order.builder()
                 .customerId(customerId)
                 .orderDate(LocalDateTime.now())
-                .orderItems(new ArrayList<>())
+                .totalAmount(BigDecimal.ZERO)
+                .status(OrderStatus.PENDING)
                 .build();
-        return saveAndReturn(order);
+        Order saved = orderRepository.save(order);
+        log.info("Order created: orderId={}", saved.getOrderId());
+        return toDTO(saved);
     }
 
-    public OrderDTO addProductToOrder(final Long orderId, final String productId) {
-        var productDTO = productServiceClient.getProductDetails(productId);
-        var order = orderRepository.findById(orderId).orElseThrow();
+    @Transactional
+    public OrderDTO addItemToOrder(Long orderId, Long productId, Integer quantity) {
+        log.info("Adding item to order {}: productId={}, quantity={}", orderId, productId, quantity);
 
-        var orderItem = new OrderItem();
-        orderItem.setProductId(productId);
-        orderItem.setProductName(productDTO.getName());
-        orderItem.setProductPrice(productDTO.getPrice());
-        // todo ... set other product details
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new OrderNotFoundException("Order not found: " + orderId));
 
-        order.addItem(orderItem);
-        return saveAndReturn(order);
+        if (order.getStatus() == OrderStatus.CANCELLED || order.getStatus() == OrderStatus.PAID) {
+            throw new InvalidOrderStateException("Cannot add items to order in status: " + order.getStatus());
+        }
+
+        ProductDTO product = productServiceClient.getProductById(productId);
+
+        if (product.getStockQuantity() != null && product.getStockQuantity() < quantity) {
+            throw new InvalidOrderStateException("Insufficient stock for product " + product.getSku()
+                    + ". Available: " + product.getStockQuantity());
+        }
+
+        // Reduce stock
+        productServiceClient.updateStock(productId, new StockUpdateRequest(-quantity));
+
+        OrderItem item = OrderItem.builder()
+                .productId(productId)
+                .productName(product.getName())
+                .productPrice(product.getPrice())
+                .quantity(quantity)
+                .build();
+
+        order.addItem(item);
+        Order saved = orderRepository.save(order);
+        log.info("Item added to order {}: product={}", orderId, product.getName());
+        return toDTO(saved);
     }
 
-    private OrderDTO saveAndReturn(final Order order) {
-        var savedEntity = orderRepository.save(order);
-        return modelMapper.map(savedEntity, OrderDTO.class);
+    @Transactional(readOnly = true)
+    public OrderDTO getOrderById(Long orderId) {
+        return toDTO(orderRepository.findById(orderId)
+                .orElseThrow(() -> new OrderNotFoundException("Order not found: " + orderId)));
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrderDTO> getOrdersByCustomer(String customerId) {
+        return orderRepository.findByCustomerId(customerId).stream()
+                .map(this::toDTO).collect(Collectors.toList());
+    }
+
+    @Transactional
+    public OrderDTO updateOrderStatus(Long orderId, OrderStatus status) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new OrderNotFoundException("Order not found: " + orderId));
+        order.setStatus(status);
+        return toDTO(orderRepository.save(order));
+    }
+
+    @Transactional
+    public void cancelOrder(Long orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new OrderNotFoundException("Order not found: " + orderId));
+
+        if (order.getStatus() == OrderStatus.SHIPPED || order.getStatus() == OrderStatus.DELIVERED) {
+            throw new InvalidOrderStateException("Cannot cancel order in status: " + order.getStatus());
+        }
+
+        order.setStatus(OrderStatus.CANCELLED);
+        orderRepository.save(order);
+
+        // Restore stock for each item
+        for (OrderItem item : order.getOrderItems()) {
+            try {
+                productServiceClient.updateStock(item.getProductId(), new StockUpdateRequest(item.getQuantity()));
+            } catch (Exception e) {
+                log.error("Failed to restore stock for productId={} during order cancellation", item.getProductId(), e);
+            }
+        }
+
+        orderEventProducer.publishOrderCancelled(OrderCancelledEvent.builder()
+                .orderId(orderId)
+                .customerId(order.getCustomerId())
+                .cancelledAt(LocalDateTime.now())
+                .build());
+
+        log.info("Order {} cancelled", orderId);
+    }
+
+    @Transactional
+    public OrderDTO confirmOrder(Long orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new OrderNotFoundException("Order not found: " + orderId));
+
+        if (order.getStatus() != OrderStatus.PENDING) {
+            throw new InvalidOrderStateException("Can only confirm PENDING orders. Current status: " + order.getStatus());
+        }
+        if (order.getOrderItems().isEmpty()) {
+            throw new InvalidOrderStateException("Cannot confirm an order with no items");
+        }
+
+        order.setStatus(OrderStatus.CONFIRMED);
+        Order saved = orderRepository.save(order);
+
+        // Publish order placed event
+        List<OrderPlacedEvent.OrderItemEvent> itemEvents = order.getOrderItems().stream()
+                .map(item -> OrderPlacedEvent.OrderItemEvent.builder()
+                        .productId(item.getProductId())
+                        .productName(item.getProductName())
+                        .productPrice(item.getProductPrice())
+                        .quantity(item.getQuantity())
+                        .build())
+                .collect(Collectors.toList());
+
+        orderEventProducer.publishOrderPlaced(OrderPlacedEvent.builder()
+                .orderId(orderId)
+                .customerId(order.getCustomerId())
+                .totalAmount(order.getTotalAmount())
+                .orderDate(order.getOrderDate())
+                .items(itemEvents)
+                .build());
+
+        log.info("Order {} confirmed and event published", orderId);
+        return toDTO(saved);
+    }
+
+    private OrderDTO toDTO(Order order) {
+        List<OrderItemDTO> itemDTOs = order.getOrderItems().stream()
+                .map(item -> OrderItemDTO.builder()
+                        .orderItemId(item.getOrderItemId())
+                        .orderId(order.getOrderId())
+                        .productId(item.getProductId())
+                        .productName(item.getProductName())
+                        .productPrice(item.getProductPrice())
+                        .quantity(item.getQuantity())
+                        .build())
+                .collect(Collectors.toList());
+
+        return OrderDTO.builder()
+                .orderId(order.getOrderId())
+                .customerId(order.getCustomerId())
+                .orderItems(itemDTOs)
+                .orderDate(order.getOrderDate())
+                .billingAddress(order.getBillingAddress())
+                .shippingAddress(order.getShippingAddress())
+                .totalAmount(order.getTotalAmount())
+                .status(order.getStatus().name())
+                .build();
     }
 }

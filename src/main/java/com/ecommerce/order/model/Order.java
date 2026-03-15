@@ -1,59 +1,63 @@
 package com.ecommerce.order.model;
 
-import jakarta.persistence.CascadeType;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.OneToMany;
-import jakarta.persistence.Table;
-import jakarta.persistence.Temporal;
-import jakarta.persistence.TemporalType;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import jakarta.persistence.*;
+import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
-@Data
+@Entity
+@Table(name = "orders")
+@Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@Entity
-@Table(name = "ORDERS")
 public class Order {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "ORDER_ID")
+    @Column(name = "order_id")
     private Long orderId;
 
-    @Column(name = "CUSTOMER_ID", nullable = false)
+    @Column(name = "customer_id", nullable = false)
     private String customerId;
 
-    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<OrderItem> orderItems;
+    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    @Builder.Default
+    private List<OrderItem> orderItems = new ArrayList<>();
 
-    @Temporal(TemporalType.TIMESTAMP)
-    @Column(name = "ORDER_DATE", nullable = false)
-    private LocalDateTime orderDate;
+    @Column(name = "order_date", nullable = false)
+    @Builder.Default
+    private LocalDateTime orderDate = LocalDateTime.now();
 
-    @Column(name = "BILLING_ADDRESS")
+    @Column(name = "billing_address", columnDefinition = "TEXT")
     private String billingAddress;
 
-    @Column(name = "SHIPPING_ADDRESS")
+    @Column(name = "shipping_address", columnDefinition = "TEXT")
     private String shippingAddress;
 
-    @Column(name = "TOTAL_AMOUNT")
-    private BigDecimal totalAmount;
+    @Column(name = "total_amount", nullable = false, precision = 19, scale = 4)
+    @Builder.Default
+    private BigDecimal totalAmount = BigDecimal.ZERO;
 
-    // todo Other fields, constructors, getters, and setters
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false, length = 30)
+    @Builder.Default
+    private OrderStatus status = OrderStatus.PENDING;
 
-    public void addItem(final OrderItem orderItem) {
-        this.orderItems.add(orderItem);
-        this.totalAmount = this.totalAmount.add(orderItem.getProductPrice());
+    public void addItem(OrderItem orderItem) {
+        if (orderItems == null) {
+            orderItems = new ArrayList<>();
+        }
+        orderItem.setOrder(this);
+        orderItems.add(orderItem);
+        if (orderItem.getProductPrice() != null && orderItem.getQuantity() != null) {
+            totalAmount = totalAmount.add(
+                orderItem.getProductPrice().multiply(BigDecimal.valueOf(orderItem.getQuantity()))
+            );
+        }
     }
 }

@@ -1,42 +1,39 @@
 package com.ecommerce.order.model;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.Table;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import jakarta.persistence.*;
+import lombok.*;
 
 import java.math.BigDecimal;
 
-@Data
+@Entity
+@Table(name = "order_items")
+@Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@Entity
-@Table(name = "ORDER_ITEMS")
 public class OrderItem {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "ORDER_ITEM_ID")
+    @Column(name = "order_item_id")
     private Long orderItemId;
 
-    @ManyToOne
-    @JoinColumn(name = "ORDER_ID", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "order_id", nullable = false)
+    @ToString.Exclude
     private Order order;
 
-    @Column(name = "PRODUCT_ID")
-    private String productId;
+    @Column(name = "product_id", nullable = false)
+    private Long productId;
 
-    @Column(name = "PRODUCT_NAME")
+    @Column(name = "product_name")
     private String productName;
 
-    @Column(name = "PRODUCT_PRICE")
+    @Column(name = "product_price", precision = 19, scale = 4)
     private BigDecimal productPrice;
+
+    @Column(name = "quantity", nullable = false)
+    @Builder.Default
+    private Integer quantity = 1;
 }
