@@ -2,12 +2,21 @@ server:
   port: 8084
 
 spring:
+  cloud:
+    loadbalancer:
+      cache:
+        ttl: 5s
+      # Without eager-load, the ServiceInstanceListSupplier for a Feign client is
+      # built lazily on first use and starts empty, so the very first call to a
+      # peer fails with "Load balancer does not contain an instance".
+      eager-load:
+        clients: product-service
   application:
     name: order-service
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5435/orderdb}
-    username: ${DB_USERNAME:ecommerce}
-    password: ${DB_PASSWORD:ecommerce}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5434/orderdb}
+    username: ${DB_USERNAME:orderuser}
+    password: ${DB_PASSWORD:orderpass}
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
@@ -39,6 +48,11 @@ eureka:
   client:
     service-url:
       defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE:http://localhost:8761/eureka/}
+    # Defaults are 30s registry fetch + a 35s LoadBalancer instance cache, so a
+    # freshly (re)started peer stays invisible for over a minute and the first
+    # calls fail with "Load balancer does not contain an instance". Short TTLs
+    # suit a compose stack where containers restart often.
+    registry-fetch-interval-seconds: 5
     fetch-registry: true
     register-with-eureka: true
   instance:
@@ -54,6 +68,17 @@ resilience4j:
         permittedNumberOfCallsInHalfOpenState: 3
         waitDurationInOpenState: 10s
         failureRateThreshold: 50
+        # Without this the breaker leaves OPEN only when a call is attempted, so
+        # an idle service stays tripped indefinitely.
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        # A 4xx means the caller asked for something invalid; product-service is
+        # healthy. Counting those as failures let a handful of requests for
+        # unknown product ids trip the breaker and take out valid traffic too.
+        ignoreExceptions:
+          - feign.FeignException$NotFound
+          - feign.FeignException$BadRequest
+          - feign.FeignException$Conflict
+          - feign.FeignException$UnprocessableEntity
 
 management:
   endpoints:
@@ -64,7 +89,7 @@ management:
     health:
       show-details: always
     prometheus:
-      enabled: true
+      access: unrestricted
   metrics:
     tags:
       application: ${spring.application.name}
@@ -77,9 +102,15 @@ management:
   tracing:
     sampling:
       probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
-  otlp:
+  opentelemetry:
     tracing:
-      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://tempo:4318}/v1/traces
+      export:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://tempo:4318}/v1/traces
+  otlp:
+    metrics:
+      export:
+        enabled: false
 
 springdoc:
   api-docs:

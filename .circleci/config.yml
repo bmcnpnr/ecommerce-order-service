@@ -1,0 +1,159 @@
+version: 2.1
+
+executors:
+  java-vm:
+    machine:
+      image: ubuntu-2404:2026.05.1
+    resource_class: medium
+
+jobs:
+  verify:
+    executor: java-vm
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - maven-v4-{{ checksum "pom.xml" }}
+            - maven-v4-
+      - run:
+          name: Prepare Maven cache and test-result directories
+          command: mkdir -p "${HOME}/.ci-java-home/.m2/repository" target/surefire-reports target/failsafe-reports
+      - run:
+          name: Verify and package
+          command: |
+            set -euo pipefail
+
+            DOCKER_SOCKET=/var/run/docker.sock
+            SOCKET_GID="$(stat -c '%g' "${DOCKER_SOCKET}")"
+
+            docker run --rm \
+              --user "$(id -u):$(id -g)" \
+              --group-add "${SOCKET_GID}" \
+              --volume "${PWD}:${PWD}" \
+              --workdir "${PWD}" \
+              --volume "${HOME}/.ci-java-home:/home/circleci" \
+              --volume "${DOCKER_SOCKET}:${DOCKER_SOCKET}" \
+              --env HOME=/home/circleci \
+              --env JAVA_TOOL_OPTIONS=-Duser.home=/home/circleci \
+              --env CI=true \
+              --env TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE="${DOCKER_SOCKET}" \
+              cimg/openjdk:25.0 \
+              mvn -B -ntp verify
+      - run:
+          name: Prepare test-results directory
+          command: mkdir -p target/surefire-reports target/failsafe-reports
+          when: always
+      - save_cache:
+          key: maven-v4-{{ checksum "pom.xml" }}
+          paths:
+            - ~/.ci-java-home/.m2/repository
+      - store_test_results:
+          path: target/surefire-reports
+      - store_test_results:
+          path: target/failsafe-reports
+      - run:
+          name: Stage JAR artifact
+          command: |
+            mkdir -p artifacts
+            cp target/*.jar artifacts/
+      - store_artifacts:
+          path: artifacts
+          destination: jars
+      - persist_to_workspace:
+          root: .
+          paths:
+            - target
+
+  validate-image:
+    docker:
+      - image: cimg/base:2026.08
+    resource_class: medium
+    environment:
+      IMAGE_NAME: ecommerce-order-service
+      GIT_REVISION: << pipeline.git.revision >>
+      GIT_REPO_URL: << pipeline.git.repo_url >>
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - setup_remote_docker
+      - run:
+          name: Build Docker image without registry credentials
+          command: |
+            set -euo pipefail
+
+            IMAGE="local/${IMAGE_NAME}:sha-${GIT_REVISION:0:12}"
+            docker build --pull \
+              --label "org.opencontainers.image.revision=${GIT_REVISION}" \
+              --label "org.opencontainers.image.source=${GIT_REPO_URL}" \
+              --tag "${IMAGE}" \
+              --file docker/Dockerfile .
+            docker image inspect "${IMAGE}" >/dev/null
+
+  publish-image:
+    docker:
+      - image: cimg/base:2026.08
+    resource_class: medium
+    environment:
+      IMAGE_NAME: ecommerce-order-service
+      GIT_REVISION: << pipeline.git.revision >>
+      GIT_BRANCH: << pipeline.git.branch >>
+      GIT_TAG: << pipeline.git.tag >>
+      GIT_REPO_URL: << pipeline.git.repo_url >>
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - setup_remote_docker
+      - run:
+          name: Build and publish Docker image
+          command: |
+            set -euo pipefail
+
+            if [[ -z "${DOCKERHUB_USERNAME:-}" || -z "${DOCKERHUB_ACCESS_TOKEN:-}" ]]; then
+              echo "DOCKERHUB_USERNAME and DOCKERHUB_ACCESS_TOKEN must be set in the ecommerce-dockerhub context." >&2
+              exit 1
+            fi
+
+            IMAGE="${DOCKERHUB_USERNAME}/${IMAGE_NAME}"
+            SHA_TAG="sha-${GIT_REVISION:0:12}"
+
+            printf '%s' "${DOCKERHUB_ACCESS_TOKEN}" | docker login --username "${DOCKERHUB_USERNAME}" --password-stdin
+            docker build --pull \
+              --label "org.opencontainers.image.revision=${GIT_REVISION}" \
+              --label "org.opencontainers.image.source=${GIT_REPO_URL}" \
+              --tag "${IMAGE}:${SHA_TAG}" \
+              --file docker/Dockerfile .
+
+            docker push "${IMAGE}:${SHA_TAG}"
+
+            if [[ -n "${GIT_TAG}" ]]; then
+              DELIVERY_TAG="${GIT_TAG}"
+            elif [[ "${GIT_BRANCH}" == "develop" ]]; then
+              DELIVERY_TAG="develop"
+            else
+              DELIVERY_TAG="latest"
+            fi
+
+            docker tag "${IMAGE}:${SHA_TAG}" "${IMAGE}:${DELIVERY_TAG}"
+            docker push "${IMAGE}:${DELIVERY_TAG}"
+
+workflows:
+  ci-cd:
+    jobs:
+      - verify:
+          filters: pipeline.git.branch or pipeline.git.tag
+      - validate-image:
+          requires:
+            - verify
+          filters: pipeline.git.branch or pipeline.git.tag
+      - publish-image:
+          context:
+            - ecommerce-dockerhub
+          requires:
+            - validate-image
+          filters: |
+            pipeline.git.branch == "develop"
+            or pipeline.git.branch == "main"
+            or pipeline.git.branch == "master"
+            or (pipeline.git.tag matches /^v.*/)
