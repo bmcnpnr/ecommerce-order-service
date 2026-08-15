@@ -115,6 +115,20 @@ jobs:
               exit 1
             fi
 
+            # CircleCI renders an unset pipeline value as the literal string "<nil>",
+            # not as an empty string. On a branch build GIT_TAG therefore arrives as
+            # "<nil>", which is non-empty, so the delivery-tag logic below took the
+            # tag branch and produced an invalid reference: <user>/<image>:<nil>.
+            # Normalise both values before anything reads them.
+            GIT_TAG="${GIT_TAG:-}"
+            GIT_BRANCH="${GIT_BRANCH:-}"
+            if [[ "${GIT_TAG}" == "<nil>" ]]; then
+              GIT_TAG=""
+            fi
+            if [[ "${GIT_BRANCH}" == "<nil>" ]]; then
+              GIT_BRANCH=""
+            fi
+
             IMAGE="${DOCKERHUB_USERNAME}/${IMAGE_NAME}"
             SHA_TAG="sha-${GIT_REVISION:0:12}"
 
