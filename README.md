@@ -12,3 +12,10 @@ to be done:
 3. Security: Secure the communication between services, possibly using OAuth or similar mechanisms.
 4. Error Handling: Implement comprehensive error handling for network issues, service unavailability, and data inconsistencies.
 5. Asynchronous Communication: In some cases, especially when dealing with long-running operations, it might be beneficial to use asynchronous communication patterns like event-driven architecture.
+## Contract tests (Pact)
+
+- `src/test/java/.../contract/ProductServiceConsumerPactTest` — **consumer** of product-service (Feign): `GET /api/v1/products/{id}`, `PATCH /api/v1/products/{id}/stock`, 404/400 handling. Writes `target/pacts/order-service-product-service.json`.
+- `.../contract/PaymentEventsConsumerPactTest` — **consumer** of payment-service's `payment.completed` / `payment.failed` records, delivered through the real listener container on an embedded Kafka. Writes `target/pacts/order-service-payment-service.json`.
+- `.../contract/OrderEventsProviderPactTest` — **provider** of `order.placed` / `order.cancelled`; replays notification-service's pact (`src/test/resources/pacts/`) against the real `OrderService` + `OrderEventProducer` and the configured `JsonSerializer`.
+
+Run them alone with `mvn test -Dtest='*PactTest'`; they are ordinary Surefire tests, so `mvn verify` and CI run them too. Regenerate and redistribute pacts across repositories with `ecommerce-platform/sync-pacts.sh` (see its README, "Contract tests").

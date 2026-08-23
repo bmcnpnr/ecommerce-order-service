@@ -23,6 +23,7 @@
         <modelmapper.version.provided>3.2.0</modelmapper.version.provided>
         <spring-cloud.version>2025.1.1</spring-cloud.version>
         <springdoc.version>2.8.5</springdoc.version>
+        <pact.version>4.7.5</pact.version>
     </properties>
 
     <dependencyManagement>
@@ -132,6 +133,23 @@
             <artifactId>spring-kafka-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Contract tests (Pact, see src/test/java/com/ecommerce/order/contract).
+             consumer/junit5 writes the pacts this service holds against
+             product-service (Feign) and payment-service (Kafka) to target/pacts;
+             provider/junit5 verifies the pact notification-service holds against
+             the order.* events this service publishes (src/test/resources/pacts). -->
+        <dependency>
+            <groupId>au.com.dius.pact.consumer</groupId>
+            <artifactId>junit5</artifactId>
+            <version>${pact.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>au.com.dius.pact.provider</groupId>
+            <artifactId>junit5</artifactId>
+            <version>${pact.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -161,6 +179,16 @@
                             <artifactId>lombok</artifactId>
                         </exclude>
                     </excludes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <!-- pact-jvm posts anonymous usage metrics unless told not to. -->
+                        <pact_do_not_track>true</pact_do_not_track>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
         </plugins>

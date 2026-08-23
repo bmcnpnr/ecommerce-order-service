@@ -1,0 +1,291 @@
+{
+  "consumer": {
+    "name": "notification-service"
+  },
+  "interactions": [
+    {
+      "comments": {
+        "testname": "com.ecommerce.notificationservice.contract.OrderEventsConsumerPactTest.orderCancelled_isDecodedAndHandedToTheNotificationService(List)"
+      },
+      "contents": {
+        "content": {
+          "cancelledAt": [
+            2026,
+            8,
+            23,
+            14,
+            30,
+            15,
+            123456789
+          ],
+          "customerId": "customer-42",
+          "orderId": 7
+        },
+        "contentType": "application/json",
+        "encoded": false
+      },
+      "description": "an order.cancelled event",
+      "key": "30fe6a12",
+      "matchingRules": {
+        "body": {
+          "$.cancelledAt": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type",
+                "min": 5
+              }
+            ]
+          },
+          "$.cancelledAt[0]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.cancelledAt[1]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.cancelledAt[2]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.cancelledAt[3]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.cancelledAt[4]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.cancelledAt[5]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.cancelledAt[6]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.customerId": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.orderId": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          }
+        },
+        "metadata": {
+          "kafka_key": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "regex",
+                "regex": "\\d+"
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "contentType": "application/json",
+        "kafka_key": "7",
+        "kafka_topic": "order.cancelled"
+      },
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "order 7 is confirmed"
+        }
+      ],
+      "type": "Asynchronous/Messages"
+    },
+    {
+      "comments": {
+        "testname": "com.ecommerce.notificationservice.contract.OrderEventsConsumerPactTest.orderPlaced_isDecodedAndHandedToTheNotificationService(List)"
+      },
+      "contents": {
+        "content": {
+          "customerId": "customer-42",
+          "orderDate": [
+            2026,
+            8,
+            23,
+            14,
+            30,
+            15,
+            123456789
+          ],
+          "orderId": 7,
+          "totalAmount": 99.98
+        },
+        "contentType": "application/json",
+        "encoded": false
+      },
+      "description": "an order.placed event",
+      "key": "133aac76",
+      "matchingRules": {
+        "body": {
+          "$.customerId": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.orderDate": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type",
+                "min": 5
+              }
+            ]
+          },
+          "$.orderDate[0]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.orderDate[1]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.orderDate[2]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.orderDate[3]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.orderDate[4]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.orderDate[5]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.orderDate[6]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.orderId": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.totalAmount": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "number"
+              }
+            ]
+          }
+        },
+        "metadata": {
+          "kafka_key": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "regex",
+                "regex": "\\d+"
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "contentType": "application/json",
+        "kafka_key": "7",
+        "kafka_topic": "order.placed"
+      },
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "order 7 is pending with items"
+        }
+      ],
+      "type": "Asynchronous/Messages"
+    }
+  ],
+  "metadata": {
+    "pact-jvm": {
+      "version": "4.7.5"
+    },
+    "pactSpecification": {
+      "version": "4.0"
+    }
+  },
+  "provider": {
+    "name": "order-service"
+  }
+}
