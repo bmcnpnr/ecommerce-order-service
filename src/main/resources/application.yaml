@@ -11,6 +11,15 @@ spring:
       # peer fails with "Load balancer does not contain an instance".
       eager-load:
         clients: product-service
+    openfeign:
+      client:
+        config:
+          default:
+            # Fail fast on a peer that vanished mid-rollout (default connect
+            # timeout is 10s) so the connection-failure retry in FeignConfig can
+            # move on to the next instance; reads stay generous.
+            connect-timeout: 2000
+            read-timeout: 10000
   application:
     name: order-service
   datasource:
@@ -48,15 +57,20 @@ eureka:
   client:
     service-url:
       defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE:http://localhost:8761/eureka/}
-    # Defaults are 30s registry fetch + a 35s LoadBalancer instance cache, so a
-    # freshly (re)started peer stays invisible for over a minute and the first
-    # calls fail with "Load balancer does not contain an instance". Short TTLs
-    # suit a compose stack where containers restart often.
+    # Fetch the registry every 5s (default 30s) so a replaced peer is seen
+    # quickly. The LoadBalancer's own instance cache is shortened to match
+    # (spring.cloud.loadbalancer.cache.ttl) where this service calls peers.
     registry-fetch-interval-seconds: 5
-    fetch-registry: true
-    register-with-eureka: true
   instance:
     prefer-ip-address: true
+    # Heartbeat every 5s, expire after 15s (defaults 30s / 90s): a *crashed*
+    # instance leaves the registry within ~20s instead of up to two minutes.
+    # Graceful stops do not wait for this: the Kubernetes preStop hook marks
+    # the instance OUT_OF_SERVICE through /actuator/serviceregistry and drains
+    # for 15s, then Boot's graceful shutdown deregisters it — see
+    # ecommerce-platform/k8s/40-services.yaml.
+    lease-renewal-interval-in-seconds: 5
+    lease-expiration-duration-in-seconds: 15
 
 resilience4j:
   circuitbreaker:
@@ -84,7 +98,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus,circuitbreakers
+        include: health,info,metrics,prometheus,circuitbreakers,serviceregistry
   endpoint:
     health:
       show-details: always
