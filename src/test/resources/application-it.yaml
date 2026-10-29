@@ -1,0 +1,21 @@
+# Profile for the *IT integration tests (src/test/java/com/ecommerce/order/integration).
+# Unlike the H2 `test` profile, nothing here replaces the production datasource,
+# Flyway or ddl-auto=validate from application.yaml: Postgres and Kafka come from
+# Testcontainers (see ContainersBase), product-service from a WireMock server
+# registered with the simple discovery client (see ApplicationTestBase).
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.cloud.autoconfigure.LifecycleMvcEndpointAutoConfiguration
+
+eureka:
+  client:
+    enabled: false
+    register-with-eureka: false
+    fetch-registry: false
+
+management:
+  tracing:
+    sampling:
+      # No Tempo in tests; with nothing sampled nothing is exported.
+      probability: 0.0

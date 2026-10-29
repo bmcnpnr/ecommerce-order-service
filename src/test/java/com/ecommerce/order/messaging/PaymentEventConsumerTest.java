@@ -1,0 +1,88 @@
+package com.ecommerce.order.messaging;
+
+import com.ecommerce.order.event.PaymentCompletedEvent;
+import com.ecommerce.order.event.PaymentFailedEvent;
+import com.ecommerce.order.model.Order;
+import com.ecommerce.order.model.OrderStatus;
+import com.ecommerce.order.repository.OrderRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+@ExtendWith(MockitoExtension.class)
+class PaymentEventConsumerTest {
+
+    @Mock private OrderRepository orderRepository;
+
+    @InjectMocks private PaymentEventConsumer consumer;
+
+    private Order order;
+
+    @BeforeEach
+    void setUp() {
+        order = Order.builder().orderId(5L).customerId("user1").status(OrderStatus.CONFIRMED)
+                .totalAmount(new BigDecimal("20.00")).orderItems(new ArrayList<>()).build();
+    }
+
+    private static PaymentCompletedEvent completed(long orderId) {
+        return PaymentCompletedEvent.builder().paymentId(1L).orderId(orderId).customerId("user1")
+                .amount(new BigDecimal("20.00")).transactionId("tx-1").completedAt(LocalDateTime.now()).build();
+    }
+
+    private static PaymentFailedEvent failed(long orderId) {
+        return PaymentFailedEvent.builder().paymentId(1L).orderId(orderId).customerId("user1")
+                .failureReason("card declined").failedAt(LocalDateTime.now()).build();
+    }
+
+    @Test
+    void paymentCompleted_marksOrderPaid() {
+        when(orderRepository.findById(5L)).thenReturn(Optional.of(order));
+
+        consumer.handlePaymentCompleted(completed(5L));
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAID);
+        verify(orderRepository).save(order);
+    }
+
+    @Test
+    void paymentCompleted_unknownOrder_isIgnored() {
+        when(orderRepository.findById(99L)).thenReturn(Optional.empty());
+
+        consumer.handlePaymentCompleted(completed(99L));
+
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void paymentFailed_cancelsOrder() {
+        when(orderRepository.findById(5L)).thenReturn(Optional.of(order));
+
+        consumer.handlePaymentFailed(failed(5L));
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        verify(orderRepository).save(order);
+    }
+
+    @Test
+    void paymentFailed_unknownOrder_isIgnored() {
+        when(orderRepository.findById(99L)).thenReturn(Optional.empty());
+
+        consumer.handlePaymentFailed(failed(99L));
+
+        verify(orderRepository, never()).save(any());
+    }
+}

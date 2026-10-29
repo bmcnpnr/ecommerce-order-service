@@ -1,0 +1,783 @@
+{
+  "consumer": {
+    "name": "ecommerce-frontend"
+  },
+  "interactions": [
+    {
+      "description": "a request for order 7",
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "order 7 is pending with items"
+        }
+      ],
+      "request": {
+        "headers": {
+          "Authorization": [
+            "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhbGljZSIsInVzZXJJZCI6NDIsInJvbGUiOiJDVVNUT01FUiIsImlhdCI6MTc5ODc2MTYwMCwiZXhwIjo0MTAyNDQ0ODAwfQ.bmRawmVR8OEdvaEgFDjrzo87mRLZDJX7GfVnVBKXsV4"
+          ]
+        },
+        "matchingRules": {
+          "header": {
+            "Authorization": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^Bearer [A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"
+                }
+              ]
+            }
+          }
+        },
+        "method": "GET",
+        "path": "/api/v1/orders/7"
+      },
+      "response": {
+        "body": {
+          "content": {
+            "customerId": "alice",
+            "orderDate": "2026-10-29T11:00:00.123456",
+            "orderId": 7,
+            "orderItems": [
+              {
+                "orderItemId": 70,
+                "productId": 1,
+                "productName": "Wireless Mouse",
+                "productPrice": 49.99,
+                "quantity": 2
+              }
+            ],
+            "status": "PENDING",
+            "totalAmount": 99.98
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "matchingRules": {
+          "body": {
+            "$.customerId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.orderDate": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?$"
+                }
+              ]
+            },
+            "$.orderId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.orderItems": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type",
+                  "min": 1
+                }
+              ]
+            },
+            "$.orderItems[*].orderItemId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.orderItems[*].productId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.orderItems[*].productName": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.orderItems[*].productPrice": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "number"
+                }
+              ]
+            },
+            "$.orderItems[*].quantity": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.status": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^(PENDING|CONFIRMED|PAID|SHIPPED|DELIVERED|CANCELLED)$"
+                }
+              ]
+            },
+            "$.totalAmount": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "number"
+                }
+              ]
+            }
+          }
+        },
+        "status": 200
+      },
+      "type": "Synchronous/HTTP"
+    },
+    {
+      "description": "a request for the orders of customer alice",
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "customer alice has orders"
+        }
+      ],
+      "request": {
+        "headers": {
+          "Authorization": [
+            "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhbGljZSIsInVzZXJJZCI6NDIsInJvbGUiOiJDVVNUT01FUiIsImlhdCI6MTc5ODc2MTYwMCwiZXhwIjo0MTAyNDQ0ODAwfQ.bmRawmVR8OEdvaEgFDjrzo87mRLZDJX7GfVnVBKXsV4"
+          ]
+        },
+        "matchingRules": {
+          "header": {
+            "Authorization": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^Bearer [A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"
+                }
+              ]
+            }
+          }
+        },
+        "method": "GET",
+        "path": "/api/v1/orders/customer/alice"
+      },
+      "response": {
+        "body": {
+          "content": [
+            {
+              "customerId": "alice",
+              "orderDate": "2026-10-29T11:00:00.123456",
+              "orderId": 7,
+              "orderItems": [
+                {
+                  "orderItemId": 70,
+                  "productId": 1,
+                  "productName": "Wireless Mouse",
+                  "productPrice": 49.99,
+                  "quantity": 2
+                }
+              ],
+              "status": "PENDING",
+              "totalAmount": 99.98
+            }
+          ],
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "matchingRules": {
+          "body": {
+            "$": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type",
+                  "min": 1
+                }
+              ]
+            },
+            "$[*].customerId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$[*].orderDate": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?$"
+                }
+              ]
+            },
+            "$[*].orderId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$[*].orderItems": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type",
+                  "min": 1
+                }
+              ]
+            },
+            "$[*].orderItems[*].orderItemId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$[*].orderItems[*].productId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$[*].orderItems[*].productName": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$[*].orderItems[*].productPrice": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "number"
+                }
+              ]
+            },
+            "$[*].orderItems[*].quantity": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$[*].status": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^(PENDING|CONFIRMED|PAID|SHIPPED|DELIVERED|CANCELLED)$"
+                }
+              ]
+            },
+            "$[*].totalAmount": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "number"
+                }
+              ]
+            }
+          }
+        },
+        "status": 200
+      },
+      "type": "Synchronous/HTTP"
+    },
+    {
+      "description": "a request to add 2 of product 1 to order 7",
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "order 7 is pending and product 1 has stock"
+        }
+      ],
+      "request": {
+        "body": {
+          "content": {
+            "productId": 1,
+            "quantity": 2
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "headers": {
+          "Authorization": [
+            "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhbGljZSIsInVzZXJJZCI6NDIsInJvbGUiOiJDVVNUT01FUiIsImlhdCI6MTc5ODc2MTYwMCwiZXhwIjo0MTAyNDQ0ODAwfQ.bmRawmVR8OEdvaEgFDjrzo87mRLZDJX7GfVnVBKXsV4"
+          ],
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "matchingRules": {
+          "header": {
+            "Authorization": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^Bearer [A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"
+                }
+              ]
+            }
+          }
+        },
+        "method": "POST",
+        "path": "/api/v1/orders/7/items"
+      },
+      "response": {
+        "body": {
+          "content": {
+            "customerId": "alice",
+            "orderDate": "2026-10-29T11:00:00.123456",
+            "orderId": 7,
+            "orderItems": [
+              {
+                "orderItemId": 70,
+                "productId": 1,
+                "productName": "Wireless Mouse",
+                "productPrice": 49.99,
+                "quantity": 2
+              }
+            ],
+            "status": "PENDING",
+            "totalAmount": 99.98
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "matchingRules": {
+          "body": {
+            "$.customerId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.orderDate": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?$"
+                }
+              ]
+            },
+            "$.orderId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.orderItems": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type",
+                  "min": 1
+                }
+              ]
+            },
+            "$.orderItems[*].orderItemId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.orderItems[*].productId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.orderItems[*].productName": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.orderItems[*].productPrice": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "number"
+                }
+              ]
+            },
+            "$.orderItems[*].quantity": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.status": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^(PENDING|CONFIRMED|PAID|SHIPPED|DELIVERED|CANCELLED)$"
+                }
+              ]
+            },
+            "$.totalAmount": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "number"
+                }
+              ]
+            }
+          }
+        },
+        "status": 200
+      },
+      "type": "Synchronous/HTTP"
+    },
+    {
+      "description": "a request to cancel order 7",
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "order 7 is pending with items"
+        }
+      ],
+      "request": {
+        "headers": {
+          "Authorization": [
+            "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhbGljZSIsInVzZXJJZCI6NDIsInJvbGUiOiJDVVNUT01FUiIsImlhdCI6MTc5ODc2MTYwMCwiZXhwIjo0MTAyNDQ0ODAwfQ.bmRawmVR8OEdvaEgFDjrzo87mRLZDJX7GfVnVBKXsV4"
+          ]
+        },
+        "matchingRules": {
+          "header": {
+            "Authorization": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^Bearer [A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"
+                }
+              ]
+            }
+          }
+        },
+        "method": "DELETE",
+        "path": "/api/v1/orders/7"
+      },
+      "response": {
+        "status": 204
+      },
+      "type": "Synchronous/HTTP"
+    },
+    {
+      "description": "a request to confirm order 7",
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "order 7 is pending with items"
+        }
+      ],
+      "request": {
+        "headers": {
+          "Authorization": [
+            "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhbGljZSIsInVzZXJJZCI6NDIsInJvbGUiOiJDVVNUT01FUiIsImlhdCI6MTc5ODc2MTYwMCwiZXhwIjo0MTAyNDQ0ODAwfQ.bmRawmVR8OEdvaEgFDjrzo87mRLZDJX7GfVnVBKXsV4"
+          ]
+        },
+        "matchingRules": {
+          "header": {
+            "Authorization": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^Bearer [A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"
+                }
+              ]
+            }
+          }
+        },
+        "method": "POST",
+        "path": "/api/v1/orders/7/confirm"
+      },
+      "response": {
+        "body": {
+          "content": {
+            "orderId": 7,
+            "status": "CONFIRMED",
+            "totalAmount": 99.98
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "matchingRules": {
+          "body": {
+            "$.orderId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.status": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^(PENDING|CONFIRMED|PAID|SHIPPED|DELIVERED|CANCELLED)$"
+                }
+              ]
+            },
+            "$.totalAmount": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "number"
+                }
+              ]
+            }
+          }
+        },
+        "status": 200
+      },
+      "type": "Synchronous/HTTP"
+    },
+    {
+      "description": "a request to create an order for customer alice",
+      "pending": false,
+      "request": {
+        "headers": {
+          "Authorization": [
+            "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhbGljZSIsInVzZXJJZCI6NDIsInJvbGUiOiJDVVNUT01FUiIsImlhdCI6MTc5ODc2MTYwMCwiZXhwIjo0MTAyNDQ0ODAwfQ.bmRawmVR8OEdvaEgFDjrzo87mRLZDJX7GfVnVBKXsV4"
+          ]
+        },
+        "matchingRules": {
+          "header": {
+            "Authorization": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^Bearer [A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"
+                }
+              ]
+            }
+          }
+        },
+        "method": "POST",
+        "path": "/api/v1/orders",
+        "query": {
+          "customerId": [
+            "alice"
+          ]
+        }
+      },
+      "response": {
+        "body": {
+          "content": {
+            "customerId": "alice",
+            "orderId": 8,
+            "status": "PENDING",
+            "totalAmount": 0
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "matchingRules": {
+          "body": {
+            "$.customerId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.orderId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.status": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^(PENDING|CONFIRMED|PAID|SHIPPED|DELIVERED|CANCELLED)$"
+                }
+              ]
+            },
+            "$.totalAmount": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "number"
+                }
+              ]
+            }
+          }
+        },
+        "status": 201
+      },
+      "type": "Synchronous/HTTP"
+    },
+    {
+      "description": "an admin request to set order 7 to SHIPPED",
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "order 7 is confirmed"
+        }
+      ],
+      "request": {
+        "headers": {
+          "Authorization": [
+            "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsInVzZXJJZCI6MSwicm9sZSI6IkFETUlOIiwiaWF0IjoxNzk4NzYxNjAwLCJleHAiOjQxMDI0NDQ4MDB9.irMIjHk52RlzLgA-bG31KMTVo3clbkkO3m0hgpXdnmc"
+          ]
+        },
+        "matchingRules": {
+          "header": {
+            "Authorization": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^Bearer [A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"
+                }
+              ]
+            }
+          }
+        },
+        "method": "PATCH",
+        "path": "/api/v1/orders/7/status",
+        "query": {
+          "status": [
+            "SHIPPED"
+          ]
+        }
+      },
+      "response": {
+        "body": {
+          "content": {
+            "orderId": 7,
+            "status": "SHIPPED"
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "matchingRules": {
+          "body": {
+            "$.orderId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.status": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^(PENDING|CONFIRMED|PAID|SHIPPED|DELIVERED|CANCELLED)$"
+                }
+              ]
+            }
+          }
+        },
+        "status": 200
+      },
+      "type": "Synchronous/HTTP"
+    }
+  ],
+  "metadata": {
+    "pact-js": {
+      "version": "17.1.4"
+    },
+    "pactRust": {
+      "ffi": "0.5.8",
+      "models": "1.3.16"
+    },
+    "pactSpecification": {
+      "version": "4.0"
+    }
+  },
+  "provider": {
+    "name": "order-service"
+  }
+}
