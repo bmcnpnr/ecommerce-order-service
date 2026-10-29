@@ -9,13 +9,14 @@ import java.time.LocalDateTime;
 /**
  * Shared vocabulary for the Kafka message pacts.
  *
- * <p>Every producer in the platform publishes with spring-kafka's {@code JsonSerializer},
- * whose default Jackson 2 mapper has {@code WRITE_DATES_AS_TIMESTAMPS} on. A
+ * <p>Every producer in the platform publishes with spring-kafka's {@code JacksonJsonSerializer},
+ * its Jackson 3 mapper configured with {@code DateTimeFeature.WRITE_DATES_AS_TIMESTAMPS}
+ * on (Jackson 3's default is off; Jackson 2's was on). A
  * {@code LocalDateTime} therefore travels as an array of integers
  * {@code [year, month, day, hour, minute, second, nanos]} — seconds and nanos are
  * omitted when zero, so 5 to 7 elements — not as an ISO-8601 string. Every consumer
- * decodes it with the same mapper (via {@code JsonMessageConverter} /
- * {@code JsonDeserializer}), which accepts both forms; the pacts pin the form that is
+ * decodes it with Jackson 3 (via {@code JacksonJsonMessageConverter} /
+ * {@code JacksonJsonDeserializer}), which accepts both forms; the pacts pin the form that is
  * actually on the wire so a producer switching serializers is caught, not discovered
  * in production.
  */

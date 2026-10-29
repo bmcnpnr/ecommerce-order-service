@@ -8,7 +8,6 @@ import com.ecommerce.order.messaging.OrderEventProducer;
 import com.ecommerce.order.model.*;
 import com.ecommerce.order.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
-import org.modelmapper.ModelMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -27,7 +26,6 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final ProductServiceClient productServiceClient;
-    private final ModelMapper modelMapper;
     private final OrderEventProducer orderEventProducer;
 
     public String getHelloMessage() {

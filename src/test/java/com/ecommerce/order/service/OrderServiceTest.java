@@ -13,7 +13,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.modelmapper.ModelMapper;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -28,7 +27,6 @@ class OrderServiceTest {
 
     @Mock private OrderRepository orderRepository;
     @Mock private ProductServiceClient productServiceClient;
-    @Mock private ModelMapper modelMapper;
     @Mock private OrderEventProducer orderEventProducer;
 
     @InjectMocks private OrderService orderService;

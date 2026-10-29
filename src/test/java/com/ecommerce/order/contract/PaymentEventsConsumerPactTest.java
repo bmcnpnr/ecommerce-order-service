@@ -49,7 +49,7 @@ import static org.mockito.Mockito.when;
  * PAID / CANCELLED. Each pact below is the message shape order-service can handle; the
  * test publishes exactly that message to an embedded Kafka broker and lets the
  * <em>production</em> consumer path — {@code KafkaProducerConfig}'s listener container
- * factory, {@code StringDeserializer} + {@code JsonMessageConverter}, the
+ * factory, {@code StringDeserializer} + {@code JacksonJsonMessageConverter}, the
  * {@code @KafkaListener} method, the repository call — process it.
  *
  * <p>order-service only <em>reads</em> {@code orderId}, but it deserializes the whole

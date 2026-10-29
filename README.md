@@ -1,21 +1,51 @@
 # ecommerce-order-service
-I will develop an e-commerce website backend (project is suggested by ChatGPT) to develop my azure, microservices and kubernetes experience
-docker build -t order-service:0.0.1-SNAPSHOT -f docker/Dockerfile .
-docker tag order-service:0.0.1-SNAPSHOT bmcnpnr/ecommerce-order-service:latest
-docker push bmcnpnr/ecommerce-order-service:latest
 
-http://localhost:8080/swagger-ui.html SWAGGER UI
-http://localhost:8080/h2-console H2 CONSOLE UI
-to be done:
-1. Data Consistency: Implement mechanisms to handle failures (e.g., what happens if the Product Microservice is unavailable, or the product ID does not exist). This might involve retry mechanisms, fallbacks, or using a messaging queue for reliable communication.
-2. API Design: Ensure your APIs are well-designed and can handle the necessary load. Use API versioning for future compatibility.
-3. Security: Secure the communication between services, possibly using OAuth or similar mechanisms.
-4. Error Handling: Implement comprehensive error handling for network issues, service unavailability, and data inconsistencies.
-5. Asynchronous Communication: In some cases, especially when dealing with long-running operations, it might be beneficial to use asynchronous communication patterns like event-driven architecture.
+Orders and their lines. An order starts `PENDING`, and the storefront uses it
+as the cart. Adding a line reads the product over Feign, snapshots its name and
+price, and reserves stock in product-service. Confirming publishes
+`order.placed`. The order becomes `PAID` or `CANCELLED` when payment-service's
+`payment.completed` or `payment.failed` arrives on Kafka. Cancelling releases
+the stock and publishes `order.cancelled`.
+
+| | |
+|---|---|
+| Port | 8084 |
+| Gateway routes | `/api/v1/orders/**` (JWT required) |
+| Data store | PostgreSQL `orderdb` (`orders`, `order_items`, Flyway) |
+| Calls | product-service (Feign: get product, adjust stock), with a resilience4j circuit breaker and connect-failure retries |
+| Publishes / consumes | `order.placed`, `order.cancelled` / `payment.completed`, `payment.failed` |
+| Docs | [Deep dive](https://github.com/bmcnpnr/ecommerce-platform/blob/develop/docs/services/order-service.md) · [API reference](https://github.com/bmcnpnr/ecommerce-platform/blob/develop/docs/api/order-service.md) · [Purchase flow](https://github.com/bmcnpnr/ecommerce-platform/blob/develop/docs/flows.md) · Swagger UI at http://localhost:8080/swagger-ui.html (`order-service`) |
+
+With the repositories checked out side by side, the same docs are in
+`../ecommerce-platform/docs/`.
+
+> **Known gaps** (see the deep dive and the
+> [findings](https://github.com/bmcnpnr/ecommerce-platform/blob/develop/docs/findings.md)):
+> - no ownership checks;
+> - `customerId` is taken from the request;
+> - the legacy `/products` endpoint accepts negative quantities;
+> - a declined payment keeps its stock reserved;
+> - payment events are applied whatever the order's state.
+
+## Build and run
+
+```bash
+mvn -B verify                       # unit, controller and contract tests (H2, embedded Kafka)
+mvn -B clean package -DskipTests    # the jar the Docker image copies
+cd ../ecommerce-platform && docker compose up -d --build order-service
+```
+
+Kafka is configured in `config/KafkaProducerConfig.java`, not in
+`application.yaml`, because Boot's Kafka auto-configuration isn't on the
+classpath. Events are JSON from spring-kafka's `JacksonJsonSerializer`, with
+`LocalDateTime` kept as integer arrays (`WRITE_DATES_AS_TIMESTAMPS`) as the
+consumers and pacts expect.
+
 ## Contract tests (Pact)
 
-- `src/test/java/.../contract/ProductServiceConsumerPactTest` — **consumer** of product-service (Feign): `GET /api/v1/products/{id}`, `PATCH /api/v1/products/{id}/stock`, 404/400 handling. Writes `target/pacts/order-service-product-service.json`.
-- `.../contract/PaymentEventsConsumerPactTest` — **consumer** of payment-service's `payment.completed` / `payment.failed` records, delivered through the real listener container on an embedded Kafka. Writes `target/pacts/order-service-payment-service.json`.
-- `.../contract/OrderEventsProviderPactTest` — **provider** of `order.placed` / `order.cancelled`; replays notification-service's pact (`src/test/resources/pacts/`) against the real `OrderService` + `OrderEventProducer` and the configured `JsonSerializer`.
+- `contract/ProductServiceConsumerPactTest`: **consumer** of product-service (Feign). Covers `GET /api/v1/products/{id}`, `PATCH /api/v1/products/{id}/stock`, and 404/400 handling. Writes `target/pacts/order-service-product-service.json`.
+- `contract/PaymentEventsConsumerPactTest`: **consumer** of payment-service's `payment.completed` / `payment.failed`, delivered through the real listener container (`StringDeserializer` + `JacksonJsonMessageConverter`) on an embedded Kafka. Writes `target/pacts/order-service-payment-service.json`.
+- `contract/OrderEventsProviderPactTest`: **provider** of `order.placed` / `order.cancelled`. Replays notification-service's pact (`src/test/resources/pacts/`) against the real `OrderService` and `OrderEventProducer`, serialized with the production `JacksonJsonSerializer`.
 
-Run them alone with `mvn test -Dtest='*PactTest'`; they are ordinary Surefire tests, so `mvn verify` and CI run them too. Regenerate and redistribute pacts across repositories with `ecommerce-platform/sync-pacts.sh` (see its README, "Contract tests").
+Run them alone with `mvn test -Dtest='*PactTest'`. Redistribute pacts with
+`ecommerce-platform/sync-pacts.sh`.

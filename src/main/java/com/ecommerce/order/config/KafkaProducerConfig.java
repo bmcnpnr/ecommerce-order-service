@@ -14,8 +14,11 @@ import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
-import org.springframework.kafka.support.converter.JsonMessageConverter;
-import org.springframework.kafka.support.serializer.JsonSerializer;
+import org.springframework.kafka.support.JacksonMapperUtils;
+import org.springframework.kafka.support.converter.JacksonJsonMessageConverter;
+import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
+import tools.jackson.databind.cfg.DateTimeFeature;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -31,10 +34,22 @@ public class KafkaProducerConfig {
     public ProducerFactory<String, Object> producerFactory() {
         Map<String, Object> configs = new HashMap<>();
         configs.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        configs.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
-        configs.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class);
-        configs.put(JsonSerializer.ADD_TYPE_INFO_HEADERS, false);
-        return new DefaultKafkaProducerFactory<>(configs);
+        // Serializer instances rather than class names: the value serializer needs a
+        // customised mapper, which a class name in the config map cannot carry.
+        return new DefaultKafkaProducerFactory<>(configs, new StringSerializer(),
+                new JacksonJsonSerializer<>(eventJsonMapper()).noTypeInfo());
+    }
+
+    /**
+     * Event JSON as it has always looked on the wire: spring-kafka's mapper defaults,
+     * but with java.time as numeric arrays ([y, M, d, H, m, s, nanos]) instead of the
+     * ISO strings Jackson 3 writes by default. Every consumer and the Pact contracts
+     * pin the array form.
+     */
+    private static JsonMapper eventJsonMapper() {
+        return JacksonMapperUtils.enhancedJsonMapper().rebuild()
+                .enable(DateTimeFeature.WRITE_DATES_AS_TIMESTAMPS)
+                .build();
     }
 
     @Bean
@@ -58,7 +73,7 @@ public class KafkaProducerConfig {
         ConcurrentKafkaListenerContainerFactory<String, String> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory());
-        factory.setRecordMessageConverter(new JsonMessageConverter());
+        factory.setRecordMessageConverter(new JacksonJsonMessageConverter());
         return factory;
     }
 }

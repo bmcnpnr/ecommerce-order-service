@@ -14,7 +14,6 @@ import com.ecommerce.order.model.OrderItem;
 import com.ecommerce.order.model.OrderStatus;
 import com.ecommerce.order.repository.OrderRepository;
 import com.ecommerce.order.service.OrderService;
-import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.header.internals.RecordHeaders;
 import org.apache.kafka.common.serialization.Serializer;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,7 +50,7 @@ import static org.mockito.Mockito.when;
  * {@code OrderEventProducer} hands it to the {@code KafkaTemplate} (mocked here to
  * capture topic, key and payload), and the payload is serialized with the value
  * serializer configured on the production {@link ProducerFactory} (spring-kafka's
- * {@code JsonSerializer}, no type headers). Pact then matches bytes and metadata
+ * {@code JacksonJsonSerializer}, no type headers). Pact then matches bytes and metadata
  * against the consumer's expectations.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
@@ -135,19 +134,13 @@ class OrderEventsProviderPactTest {
                 "kafka_key", key.getValue()));
     }
 
-    /** Instantiates and configures the value serializer class exactly as the Kafka client would from the production ProducerFactory. */
-    @SuppressWarnings("unchecked")
+    /** The value serializer instance the production ProducerFactory hands to the Kafka client. */
     private Serializer<Object> valueSerializer() {
-        Map<String, Object> config = producerFactory.getConfigurationProperties();
-        Object configured = config.get(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG);
-        try {
-            Class<?> type = configured instanceof Class<?> c ? c : Class.forName(String.valueOf(configured));
-            Serializer<Object> serializer = (Serializer<Object>) type.getDeclaredConstructor().newInstance();
-            serializer.configure(config, false);
-            return serializer;
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException("Cannot instantiate configured value serializer " + configured, e);
+        Serializer<Object> serializer = producerFactory.getValueSerializer();
+        if (serializer == null) {
+            throw new IllegalStateException("The production ProducerFactory configures no value serializer instance");
         }
+        return serializer;
     }
 
     private static Order order(OrderStatus status) {
