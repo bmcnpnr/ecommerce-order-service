@@ -22,6 +22,13 @@ spring:
             read-timeout: 10000
   application:
     name: order-service
+  jackson:
+    # A fractional or numeric-string value for an integer field (quantity 1.5, 2.0, "3") is refused
+    # instead of being silently coerced (I-2).
+    deserialization:
+      accept-float-as-int: false
+    mapper:
+      allow-coercion-of-scalars: false
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5434/orderdb}
     username: ${DB_USERNAME:orderuser}
@@ -91,7 +98,7 @@ management:
         include: health,info,metrics,prometheus,circuitbreakers,serviceregistry
   endpoint:
     health:
-      show-details: always
+      show-details: never
     prometheus:
       access: unrestricted
   metrics:

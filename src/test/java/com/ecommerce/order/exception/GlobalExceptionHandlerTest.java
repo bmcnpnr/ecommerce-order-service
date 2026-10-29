@@ -48,6 +48,17 @@ class GlobalExceptionHandlerTest {
     @MockitoBean
     private OrderService orderService;
 
+    // Authorization rules are unit-tested in OrderAccessTest and end to end in OrderSecurityIT;
+    // here the controller wiring is under test, so the guard lets the owner argument through.
+    @MockitoBean
+    private com.ecommerce.order.security.OrderAccess access;
+
+    @org.junit.jupiter.api.BeforeEach
+    void passThroughOwner() {
+        org.mockito.BDDMockito.given(access.resolveCustomer(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .willAnswer(i -> i.getArgument(2));
+    }
+
     private static FeignException feignError(int status) {
         Request request = Request.create(Request.HttpMethod.GET, "http://product-service/api/v1/products/1",
                 Map.of(), null, StandardCharsets.UTF_8, null);

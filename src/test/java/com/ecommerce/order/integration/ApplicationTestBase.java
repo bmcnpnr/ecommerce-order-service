@@ -73,6 +73,24 @@ abstract class ApplicationTestBase extends ContainersBase {
                 .toEntity(String.class);
     }
 
+    /** Identity the gateway would forward for an administrator. */
+    static final java.util.function.Consumer<org.springframework.http.HttpHeaders> ADMIN = h -> {
+        h.set("X-Username", "root");
+        h.set("X-User-Id", "1");
+        h.set("X-User-Role", "ADMIN");
+    };
+
+    /** Like {@link #call} but as an administrator (the gateway-forwarded identity headers). */
+    ResponseEntity<String> callAsAdmin(HttpMethod method, String path, Object jsonBody) {
+        var spec = http.method(method).uri(path).headers(ADMIN);
+        if (jsonBody != null) {
+            spec = spec.contentType(MediaType.APPLICATION_JSON).body(jsonBody);
+        }
+        return spec.retrieve()
+                .onStatus(HttpStatusCode::isError, (request, response) -> { })
+                .toEntity(String.class);
+    }
+
     static KafkaProducer<String, String> rawProducer() {
         return new KafkaProducer<>(Map.of(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers()),
                 new StringSerializer(), new StringSerializer());

@@ -13,7 +13,8 @@ public interface ProductServiceClient {
     @CircuitBreaker(name = "product-service")
     ProductDTO getProductById(@PathVariable("id") Long productId);
 
-    @PatchMapping("/api/v1/products/{id}/stock")
+    // Internal endpoint: the public stock endpoint is admin-only and the gateway never routes /internal.
+    @PatchMapping("/internal/v1/products/{id}/stock")
     @CircuitBreaker(name = "product-service")
     ProductDTO updateStock(@PathVariable("id") Long productId, @RequestBody StockUpdateRequest request);
 }

@@ -52,17 +52,17 @@ class OrderFlowIT extends ApplicationTestBase {
 
     private void stubProduct(long id, String price, int stock) {
         PRODUCT_SERVICE.stubFor(get(urlEqualTo("/api/v1/products/" + id)).willReturn(okJson(productJson(id, price, stock))));
-        PRODUCT_SERVICE.stubFor(patch(urlEqualTo("/api/v1/products/" + id + "/stock")).willReturn(okJson(productJson(id, price, stock))));
+        PRODUCT_SERVICE.stubFor(patch(urlEqualTo("/internal/v1/products/" + id + "/stock")).willReturn(okJson(productJson(id, price, stock))));
     }
 
     private long createOrder(String customerId) {
-        ResponseEntity<String> created = call(HttpMethod.POST, "/api/v1/orders?customerId=" + customerId, null);
+        ResponseEntity<String> created = callAsAdmin(HttpMethod.POST, "/api/v1/orders?customerId=" + customerId, null);
         assertThat(created.getStatusCode().value()).isEqualTo(201);
         return json.readTree(created.getBody()).get("orderId").asLong();
     }
 
     private JsonNode addItem(long orderId, long productId, int quantity) {
-        ResponseEntity<String> response = call(HttpMethod.POST, "/api/v1/orders/" + orderId + "/items",
+        ResponseEntity<String> response = callAsAdmin(HttpMethod.POST, "/api/v1/orders/" + orderId + "/items",
                 Map.of("productId", productId, "quantity", quantity));
         assertThat(response.getStatusCode().value()).isEqualTo(200);
         return json.readTree(response.getBody());
@@ -74,7 +74,7 @@ class OrderFlowIT extends ApplicationTestBase {
 
         long orderId = createOrder("cust-flow-1");
         JsonNode afterAdd = addItem(orderId, 42L, 2);
-        ResponseEntity<String> placed = call(HttpMethod.POST, "/api/v1/orders/" + orderId + "/confirm", null);
+        ResponseEntity<String> placed = callAsAdmin(HttpMethod.POST, "/api/v1/orders/" + orderId + "/confirm", null);
 
         // HTTP
         assertThat(afterAdd.get("totalAmount").decimalValue()).isEqualByComparingTo("59.98");
@@ -83,7 +83,7 @@ class OrderFlowIT extends ApplicationTestBase {
         assertThat(json.readTree(placed.getBody()).get("status").asString()).isEqualTo("CONFIRMED");
 
         // product-service saw the stock reservation
-        PRODUCT_SERVICE.verify(1, patchRequestedFor(urlEqualTo("/api/v1/products/42/stock"))
+        PRODUCT_SERVICE.verify(1, patchRequestedFor(urlEqualTo("/internal/v1/products/42/stock"))
                 .withRequestBody(equalToJson("{\"delta\":-2}")));
 
         // Postgres
@@ -130,14 +130,14 @@ class OrderFlowIT extends ApplicationTestBase {
         stubProduct(43L, "5.00", 10);
         long orderId = createOrder("cust-flow-2");
         addItem(orderId, 43L, 3);
-        call(HttpMethod.POST, "/api/v1/orders/" + orderId + "/confirm", null);
+        callAsAdmin(HttpMethod.POST, "/api/v1/orders/" + orderId + "/confirm", null);
 
-        ResponseEntity<String> cancelled = call(HttpMethod.DELETE, "/api/v1/orders/" + orderId, null);
+        ResponseEntity<String> cancelled = callAsAdmin(HttpMethod.DELETE, "/api/v1/orders/" + orderId, null);
 
         assertThat(cancelled.getStatusCode().value()).isEqualTo(204);
         assertThat(jdbc.queryForObject("select status from orders where order_id = ?", String.class, orderId))
                 .isEqualTo("CANCELLED");
-        PRODUCT_SERVICE.verify(1, patchRequestedFor(urlEqualTo("/api/v1/products/43/stock"))
+        PRODUCT_SERVICE.verify(1, patchRequestedFor(urlEqualTo("/internal/v1/products/43/stock"))
                 .withRequestBody(equalToJson("{\"delta\":3}")));
 
         JsonNode payload = json.readTree(awaitRecord("order.cancelled", Long.toString(orderId), KAFKA_TIMEOUT).value());
@@ -146,7 +146,7 @@ class OrderFlowIT extends ApplicationTestBase {
         assertThat(payload.get("cancelledAt").isArray()).isTrue();
 
         // A cancelled order cannot be placed again.
-        ResponseEntity<String> replace = call(HttpMethod.POST, "/api/v1/orders/" + orderId + "/confirm", null);
+        ResponseEntity<String> replace = callAsAdmin(HttpMethod.POST, "/api/v1/orders/" + orderId + "/confirm", null);
         assertThat(replace.getStatusCode().value()).isEqualTo(400);
     }
 
@@ -155,7 +155,7 @@ class OrderFlowIT extends ApplicationTestBase {
         PRODUCT_SERVICE.stubFor(get(urlEqualTo("/api/v1/products/999")).willReturn(aResponse().withStatus(404)));
         long orderId = createOrder("cust-flow-3");
 
-        ResponseEntity<String> response = call(HttpMethod.POST, "/api/v1/orders/" + orderId + "/items",
+        ResponseEntity<String> response = callAsAdmin(HttpMethod.POST, "/api/v1/orders/" + orderId + "/items",
                 Map.of("productId", 999, "quantity", 1));
 
         assertThat(response.getStatusCode().value()).isEqualTo(404);
@@ -169,7 +169,7 @@ class OrderFlowIT extends ApplicationTestBase {
         stubProduct(44L, "5.00", 1);
         long orderId = createOrder("cust-flow-4");
 
-        ResponseEntity<String> response = call(HttpMethod.POST, "/api/v1/orders/" + orderId + "/items",
+        ResponseEntity<String> response = callAsAdmin(HttpMethod.POST, "/api/v1/orders/" + orderId + "/items",
                 Map.of("productId", 44, "quantity", 2));
 
         assertThat(response.getStatusCode().value()).isEqualTo(400);
@@ -180,7 +180,7 @@ class OrderFlowIT extends ApplicationTestBase {
 
     @Test
     void unknownOrder_is404() {
-        ResponseEntity<String> response = call(HttpMethod.GET, "/api/v1/orders/987654321", null);
+        ResponseEntity<String> response = callAsAdmin(HttpMethod.GET, "/api/v1/orders/987654321", null);
 
         assertThat(response.getStatusCode().value()).isEqualTo(404);
         assertThat(response.getHeaders().getFirst("X-Correlation-Id")).isNotBlank();

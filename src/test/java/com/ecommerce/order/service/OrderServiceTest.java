@@ -360,6 +360,7 @@ class OrderServiceTest {
 
     @Test
     void updateOrderStatus_setsStatusAndSaves() {
+        testOrder.setStatus(OrderStatus.PAID); // PAID -> SHIPPED is a legal transition
         when(orderRepository.findById(1L)).thenReturn(Optional.of(testOrder));
         stubSaveReturnsArgument();
 

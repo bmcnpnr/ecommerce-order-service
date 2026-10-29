@@ -8,6 +8,8 @@ import com.ecommerce.order.repository.OrderRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -84,5 +86,78 @@ class PaymentEventConsumerTest {
         consumer.handlePaymentFailed(failed(99L));
 
         verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void paymentCompleted_amountMismatch_isIgnored() {
+        when(orderRepository.findById(5L)).thenReturn(Optional.of(order));
+        PaymentCompletedEvent event = completed(5L);
+        event.setAmount(new BigDecimal("0.01"));
+
+        consumer.handlePaymentCompleted(event);
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CONFIRMED);
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void paymentCompleted_sameAmountWithDifferentScale_marksPaid() {
+        when(orderRepository.findById(5L)).thenReturn(Optional.of(order));
+        PaymentCompletedEvent event = completed(5L);
+        event.setAmount(new BigDecimal("20.0000"));
+
+        consumer.handlePaymentCompleted(event);
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAID);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = OrderStatus.class, names = {"PENDING", "PAID", "SHIPPED", "DELIVERED", "CANCELLED"})
+    void paymentCompleted_forAnOrderThatIsNotConfirmed_isIgnored(OrderStatus status) {
+        order.setStatus(status);
+        when(orderRepository.findById(5L)).thenReturn(Optional.of(order));
+
+        consumer.handlePaymentCompleted(completed(5L));
+
+        assertThat(order.getStatus()).isEqualTo(status);
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void paymentCompleted_withoutOrderIdOrAmount_isIgnoredWithoutAnException() {
+        consumer.handlePaymentCompleted(new PaymentCompletedEvent());
+        consumer.handlePaymentCompleted(PaymentCompletedEvent.builder().orderId(5L).build());
+
+        verify(orderRepository, never()).findById(any());
+        verify(orderRepository, never()).save(any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = OrderStatus.class, names = {"PAID", "SHIPPED", "DELIVERED", "CANCELLED"})
+    void paymentFailed_forAnOrderPastConfirmation_isIgnored(OrderStatus status) {
+        order.setStatus(status);
+        when(orderRepository.findById(5L)).thenReturn(Optional.of(order));
+
+        consumer.handlePaymentFailed(failed(5L));
+
+        assertThat(order.getStatus()).isEqualTo(status);
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void paymentFailed_cancelsPendingOrder() {
+        order.setStatus(OrderStatus.PENDING);
+        when(orderRepository.findById(5L)).thenReturn(Optional.of(order));
+
+        consumer.handlePaymentFailed(failed(5L));
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+    }
+
+    @Test
+    void paymentFailed_withoutOrderId_isIgnored() {
+        consumer.handlePaymentFailed(new PaymentFailedEvent());
+
+        verify(orderRepository, never()).findById(any());
     }
 }

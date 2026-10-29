@@ -121,10 +121,15 @@ class FrontendHttpProviderPactTest {
         insertOrder(7L, "alice", "PENDING", BigDecimal.ZERO);
     }
 
+    /**
+     * The admin interaction ships the order. PATCH /status only allows legal transitions
+     * (CONFIRMED -> SHIPPED skips payment and is a 409), so the data behind this state is a paid order,
+     * which is what an administrator can actually ship.
+     */
     @State("order 7 is confirmed")
     void order7Confirmed() {
         reset();
-        insertOrder(7L, "alice", "CONFIRMED", new BigDecimal("99.98"));
+        insertOrder(7L, "alice", "PAID", new BigDecimal("99.98"));
         insertItem(70L, 7L, 1L, "Wireless Mouse", new BigDecimal("49.99"), 2);
     }
 
@@ -147,7 +152,7 @@ class FrontendHttpProviderPactTest {
         String product = "{\"id\":1,\"sku\":\"SKU-001\",\"name\":\"Wireless Mouse\",\"price\":49.99,"
                 + "\"stockQuantity\":50,\"brand\":\"Logi\",\"status\":\"ACTIVE\"}";
         PRODUCT_SERVICE.stubFor(get(urlEqualTo("/api/v1/products/1")).willReturn(okJson(product)));
-        PRODUCT_SERVICE.stubFor(patch(urlEqualTo("/api/v1/products/1/stock")).willReturn(okJson(product)));
+        PRODUCT_SERVICE.stubFor(patch(urlEqualTo("/internal/v1/products/1/stock")).willReturn(okJson(product)));
     }
 
     private void insertOrder(Long id, String customerId, String status, BigDecimal total) {

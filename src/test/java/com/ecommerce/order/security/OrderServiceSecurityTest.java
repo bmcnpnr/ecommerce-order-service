@@ -12,7 +12,6 @@ import com.ecommerce.order.model.OrderStatus;
 import com.ecommerce.order.repository.OrderRepository;
 import com.ecommerce.order.service.OrderService;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -92,7 +91,6 @@ class OrderServiceSecurityTest {
                 assertThat(item.getProductPrice()).isEqualByComparingTo("29.99"));
     }
 
-    @Disabled("BUG S-63: a negative price coming back from product-service is added as-is, so the total goes down and the order can be 'paid' for less than nothing")
     @Test
     void addItem_negativeUpstreamPrice_isRejected() {
         Order order = Order.builder().orderId(1L).customerId("alice").status(OrderStatus.PENDING).build();
@@ -105,7 +103,6 @@ class OrderServiceSecurityTest {
         assertThat(order.getOrderItems()).isEmpty();
     }
 
-    @Disabled("BUG S-63: a product with a null price is added to the order at no cost (Order.addItem silently skips the total)")
     @Test
     void addItem_nullUpstreamPrice_isRejected() {
         Order order = Order.builder().orderId(1L).customerId("alice").status(OrderStatus.PENDING).build();
@@ -142,17 +139,19 @@ class OrderServiceSecurityTest {
         verifyNoInteractions(productServiceClient);
     }
 
-    @Disabled("BUG S-64: items can still be added after the order was confirmed (and shipped/delivered), so the total changes after order.placed carried the amount to be paid")
     @ParameterizedTest
     @EnumSource(value = OrderStatus.class, names = {"CONFIRMED", "SHIPPED", "DELIVERED"})
     void addItem_toOrderPastPending_isRejected(OrderStatus status) {
         Order order = order(1L, status);
         givenOrder(order);
-        given(productServiceClient.getProductById(1L)).willReturn(product("5.00", 10));
+        // lenient: the state check now runs before product-service is called at all (better than the
+        // pinned expectation, which stubbed a call that no longer happens)
+        org.mockito.Mockito.lenient().when(productServiceClient.getProductById(1L)).thenReturn(product("5.00", 10));
 
         assertThatThrownBy(() -> service.addItemToOrder(1L, 1L, 1)).isInstanceOf(InvalidOrderStateException.class);
 
         assertThat(order.getTotalAmount()).isEqualByComparingTo("40.00");
+        verifyNoInteractions(productServiceClient);
     }
 
     // ---- status transitions ------------------------------------------------------------------------
@@ -168,7 +167,6 @@ class OrderServiceSecurityTest {
                 org.junit.jupiter.params.provider.Arguments.of(OrderStatus.PAID, OrderStatus.PENDING));
     }
 
-    @Disabled("BUG I-8: updateOrderStatus performs no state-machine check, so any status can be forced from any status (PENDING -> DELIVERED, CANCELLED -> PAID, ...)")
     @ParameterizedTest
     @MethodSource("illegalTransitions")
     void updateStatus_illegalTransition_isRejected_andNothingIsSaved(OrderStatus from, OrderStatus to) {

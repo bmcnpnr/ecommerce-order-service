@@ -22,9 +22,22 @@ public class PaymentEventConsumer {
     @KafkaListener(topics = "payment.completed", groupId = "order-service")
     @Transactional
     public void handlePaymentCompleted(PaymentCompletedEvent event) {
+        if (event == null || event.getOrderId() == null || event.getAmount() == null) {
+            log.warn("Ignoring payment.completed without orderId or amount");
+            return;
+        }
         log.info("Received payment.completed for orderId: {}", event.getOrderId());
         orderRepository.findById(event.getOrderId()).ifPresentOrElse(
             order -> {
+                if (order.getStatus() != OrderStatus.CONFIRMED) {
+                    log.warn("Ignoring payment.completed for order {} in status {}", order.getOrderId(), order.getStatus());
+                    return;
+                }
+                if (order.getTotalAmount() == null || order.getTotalAmount().compareTo(event.getAmount()) != 0) {
+                    log.warn("Ignoring payment.completed for order {}: amount {} does not match the order total {}",
+                            order.getOrderId(), event.getAmount(), order.getTotalAmount());
+                    return;
+                }
                 order.setStatus(OrderStatus.PAID);
                 orderRepository.save(order);
                 log.info("Order {} status updated to PAID", event.getOrderId());
@@ -36,9 +49,17 @@ public class PaymentEventConsumer {
     @KafkaListener(topics = "payment.failed", groupId = "order-service")
     @Transactional
     public void handlePaymentFailed(PaymentFailedEvent event) {
+        if (event == null || event.getOrderId() == null) {
+            log.warn("Ignoring payment.failed without orderId");
+            return;
+        }
         log.info("Received payment.failed for orderId: {}", event.getOrderId());
         orderRepository.findById(event.getOrderId()).ifPresentOrElse(
             order -> {
+                if (order.getStatus() != OrderStatus.PENDING && order.getStatus() != OrderStatus.CONFIRMED) {
+                    log.warn("Ignoring payment.failed for order {} in status {}", order.getOrderId(), order.getStatus());
+                    return;
+                }
                 order.setStatus(OrderStatus.CANCELLED);
                 orderRepository.save(order);
                 log.info("Order {} status updated to CANCELLED due to payment failure", event.getOrderId());

@@ -53,11 +53,16 @@ public class OrderService {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new OrderNotFoundException("Order not found: " + orderId));
 
-        if (order.getStatus() == OrderStatus.CANCELLED || order.getStatus() == OrderStatus.PAID) {
+        if (order.getStatus() != OrderStatus.PENDING) {
             throw new InvalidOrderStateException("Cannot add items to order in status: " + order.getStatus());
         }
 
         ProductDTO product = productServiceClient.getProductById(productId);
+
+        if (product == null || product.getPrice() == null || product.getPrice().signum() <= 0) {
+            log.error("product-service returned a missing or non-positive price for productId={}", productId);
+            throw new UpstreamDataException("Product price is not available");
+        }
 
         if (product.getStockQuantity() != null && product.getStockQuantity() < quantity) {
             throw new InvalidOrderStateException("Insufficient stock for product " + product.getSku()
@@ -96,6 +101,19 @@ public class OrderService {
     public OrderDTO updateOrderStatus(Long orderId, OrderStatus status) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new OrderNotFoundException("Order not found: " + orderId));
+        if (!order.getStatus().canTransitionTo(status)) {
+            throw new IllegalStatusTransitionException(
+                    "Cannot change order status from " + order.getStatus() + " to " + status);
+        }
+        // Cancelling and confirming have side effects (stock restore, order.cancelled, order.placed):
+        // go through the same code paths the customer endpoints use.
+        if (status == OrderStatus.CANCELLED) {
+            cancelOrder(orderId);
+            return toDTO(order);
+        }
+        if (status == OrderStatus.CONFIRMED) {
+            return confirmOrder(orderId);
+        }
         order.setStatus(status);
         return toDTO(orderRepository.save(order));
     }

@@ -3,7 +3,6 @@ package com.ecommerce.order.security;
 import com.ecommerce.order.controller.OrderController;
 import com.ecommerce.order.exception.InvalidOrderStateException;
 import com.ecommerce.order.service.OrderService;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -41,6 +40,13 @@ class OrderControllerSecurityTest {
 
     @Autowired private MockMvc mockMvc;
     @MockitoBean private OrderService orderService;
+    // Authorization is covered by OrderAccessTest and OrderSecurityIT; here the guard lets the owner argument through.
+    @MockitoBean private com.ecommerce.order.security.OrderAccess access;
+
+    @org.junit.jupiter.api.BeforeEach
+    void passThroughOwner() {
+        org.mockito.BDDMockito.given(access.resolveCustomer(any(), any(), any())).willAnswer(i -> i.getArgument(2));
+    }
 
     private static final String[] INTERNALS = {
             "com.ecommerce", "java.lang", "java.math", "org.springframework", "org.hibernate", "org.postgresql",
@@ -99,7 +105,6 @@ class OrderControllerSecurityTest {
 
     // ---- legacy endpoint ---------------------------------------------------------------------
 
-    @Disabled("BUG I-2: legacy POST /{orderId}/products takes quantity as a bare request param with no @Min(1), so 0/negative/MIN_VALUE reach the service")
     @ParameterizedTest
     @ValueSource(strings = {"0", "-1", "-5", "-2147483648"})
     void legacyAddProduct_nonPositiveQuantity_isRejected(String quantity) throws Exception {
@@ -145,7 +150,6 @@ class OrderControllerSecurityTest {
         verifyNoInteractions(orderService);
     }
 
-    @Disabled("BUG S-65: customerId is an unvalidated request param, so a blank value creates an order owned by nobody")
     @ParameterizedTest
     @ValueSource(strings = {"", "   "})
     void createOrder_blankCustomerId_isRejected(String customerId) throws Exception {
@@ -166,7 +170,6 @@ class OrderControllerSecurityTest {
         verifyNoInteractions(orderService);
     }
 
-    @Disabled("BUG S-62: GlobalExceptionHandler has no HttpMediaTypeNotSupportedException handler (A-4 fixed it in payment/shipping only), so a wrong Content-Type is a 500")
     @ParameterizedTest
     @ValueSource(strings = {"text/plain", "application/xml", "application/x-www-form-urlencoded"})
     void addItem_wrongContentType_is415(String contentType) throws Exception {
@@ -209,7 +212,6 @@ class OrderControllerSecurityTest {
         assertNoInternals(result.getResponse().getContentAsString());
     }
 
-    @Disabled("BUG S-61: HttpMessageNotReadableException / MethodArgumentTypeMismatchException messages are echoed verbatim, exposing DTO class names and Jackson/Java types")
     @Test
     void malformedJson_errorBodyLeaksNoClassNames() throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/orders/1/items").contentType(MediaType.APPLICATION_JSON)
@@ -218,7 +220,6 @@ class OrderControllerSecurityTest {
         assertNoInternals(result.getResponse().getContentAsString());
     }
 
-    @Disabled("BUG S-61: HttpMessageNotReadableException / MethodArgumentTypeMismatchException messages are echoed verbatim, exposing DTO class names and Jackson/Java types")
     @Test
     void wrongTypedPathVariable_errorBodyLeaksNoClassNames() throws Exception {
         MvcResult result = mockMvc.perform(get("/api/v1/orders/abc")).andExpect(status().isBadRequest()).andReturn();
@@ -226,7 +227,6 @@ class OrderControllerSecurityTest {
         assertNoInternals(result.getResponse().getContentAsString());
     }
 
-    @Disabled("BUG S-61: handleFeign appends FeignException.getMessage(), which carries the internal URL, client interface and method signature")
     @Test
     void downstreamFailure_errorBodyLeaksNoInternalTopology() throws Exception {
         feign.Request request = feign.Request.create(feign.Request.HttpMethod.GET, "http://product-service/api/v1/products/9",
