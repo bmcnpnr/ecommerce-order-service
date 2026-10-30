@@ -1,14 +1,6 @@
 package com.ecommerce.order.integration;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
-import org.apache.kafka.clients.consumer.ConsumerConfig;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.apache.kafka.clients.producer.KafkaProducer;
-import org.apache.kafka.clients.producer.ProducerConfig;
-import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.common.serialization.StringDeserializer;
-import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -16,16 +8,13 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.client.RestClient;
 
-import java.time.Duration;
-import java.time.Instant;
-import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 
@@ -60,7 +49,16 @@ abstract class ApplicationTestBase extends ContainersBase {
     @BeforeEach
     void setUpHttp() {
         PRODUCT_SERVICE.resetAll();
-        http = RestClient.create("http://localhost:" + port);
+        // Apache HttpClient 5 re-sends a request by itself when it is answered with a 503, which would hide
+        // (and double) exactly the failures these tests count; and it allows 5 connections per route, which
+        // would cap the concurrency the load-shaped tests are meant to create.
+        http = RestClient.builder().baseUrl("http://localhost:" + port)
+                .requestFactory(new HttpComponentsClientHttpRequestFactory(
+                        org.apache.hc.client5.http.impl.classic.HttpClients.custom().disableAutomaticRetries()
+                                .setConnectionManager(org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder.create()
+                                        .setMaxConnPerRoute(100).setMaxConnTotal(200).build())
+                                .build()))
+                .build();
     }
 
     ResponseEntity<String> call(HttpMethod method, String path, Object jsonBody) {
@@ -89,37 +87,5 @@ abstract class ApplicationTestBase extends ContainersBase {
         return spec.retrieve()
                 .onStatus(HttpStatusCode::isError, (request, response) -> { })
                 .toEntity(String.class);
-    }
-
-    static KafkaProducer<String, String> rawProducer() {
-        return new KafkaProducer<>(Map.of(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers()),
-                new StringSerializer(), new StringSerializer());
-    }
-
-    static void publish(String topic, String key, String json) throws Exception {
-        try (KafkaProducer<String, String> producer = rawProducer()) {
-            producer.send(new ProducerRecord<>(topic, key, json)).get();
-        }
-    }
-
-    /** Reads {@code topic} from the beginning (fresh group) until a record with {@code key} arrives. */
-    static ConsumerRecord<String, String> awaitRecord(String topic, String key, Duration timeout) {
-        Map<String, Object> config = Map.of(
-                ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers(),
-                ConsumerConfig.GROUP_ID_CONFIG, "it-" + UUID.randomUUID(),
-                ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        try (KafkaConsumer<String, String> consumer =
-                     new KafkaConsumer<>(config, new StringDeserializer(), new StringDeserializer())) {
-            consumer.subscribe(List.of(topic));
-            Instant deadline = Instant.now().plus(timeout);
-            while (Instant.now().isBefore(deadline)) {
-                for (ConsumerRecord<String, String> record : consumer.poll(Duration.ofMillis(500))) {
-                    if (key.equals(record.key())) {
-                        return record;
-                    }
-                }
-            }
-        }
-        throw new AssertionError("No record with key " + key + " on " + topic + " within " + timeout);
     }
 }

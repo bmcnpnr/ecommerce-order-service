@@ -16,11 +16,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -71,9 +69,6 @@ class FrontendHttpProviderPactTest {
 
     @Autowired
     private JdbcTemplate jdbc;
-
-    @MockitoBean
-    private KafkaTemplate<String, Object> kafkaTemplate; // no broker needed
 
     @BeforeEach
     void setTarget(PactVerificationContext context) {

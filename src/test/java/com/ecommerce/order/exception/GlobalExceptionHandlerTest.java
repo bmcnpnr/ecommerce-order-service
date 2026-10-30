@@ -2,11 +2,26 @@ package com.ecommerce.order.exception;
 
 import com.ecommerce.order.controller.OrderController;
 import com.ecommerce.order.service.OrderService;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import feign.FeignException;
 import feign.Request;
 import feign.Response;
 import feign.RetryableException;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.QueryTimeoutException;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +33,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.notNullValue;
@@ -30,6 +46,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -192,17 +209,6 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    void fallbackUnavailable_is503() throws Exception {
-        given(orderService.addItemToOrder(1L, 7L, 1))
-                .willThrow(new RuntimeException("Product service unavailable. Please try again later."));
-
-        mockMvc.perform(post("/api/v1/orders/1/products").param("productId", "7"))
-                .andExpect(status().isServiceUnavailable())
-                .andExpect(jsonPath("$.error").value("Service Unavailable"))
-                .andExpect(jsonPath("$.message").value("Product service unavailable. Please try again later."));
-    }
-
-    @Test
     void unexpectedRuntimeException_is500WithoutLeakingDetails() throws Exception {
         given(orderService.getOrderById(1L)).willThrow(new IllegalStateException("secret internals"));
 
@@ -219,5 +225,161 @@ class GlobalExceptionHandlerTest {
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.error").value("Internal Server Error"))
                 .andExpect(jsonPath("$.message").value("An unexpected error occurred"));
+    }
+
+    // ---- dependencies that do not answer are a 503 and one line, not a 500 and a stack trace (L3, L4) ----
+
+    private ListAppender<ILoggingEvent> logs;
+    private Logger handlerLogger;
+
+    @BeforeEach
+    void captureHandlerLog() {
+        handlerLogger = (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        logs = new ListAppender<>();
+        logs.start();
+        handlerLogger.addAppender(logs);
+    }
+
+    @AfterEach
+    void releaseHandlerLog() {
+        handlerLogger.detachAppender(logs);
+    }
+
+    @Test
+    void breakerOpen_is503WithTheDownstreamMessage() throws Exception {
+        given(orderService.addItemToOrder(1L, 7L, 1))
+                .willThrow(CallNotPermittedException.createCallNotPermittedException(CircuitBreaker.ofDefaults("product-service")));
+
+        mockMvc.perform(post("/api/v1/orders/1/products").param("productId", "7"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.error").value("Service Unavailable"))
+                .andExpect(jsonPath("$.message").value("Downstream service call failed: service unavailable"))
+                .andExpect(jsonPath("$.correlationId").value(notNullValue()));
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.MethodSource("databaseOutages")
+    void databaseTrouble_is503WithAFixedMessage(RuntimeException outage) throws Exception {
+        given(orderService.getOrderById(1L)).willThrow(outage);
+
+        mockMvc.perform(get("/api/v1/orders/1"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.message").value("Service temporarily unavailable"))
+                .andExpect(content().string(org.hamcrest.Matchers.not(containsString("secret-host"))));
+    }
+
+    static java.util.stream.Stream<RuntimeException> databaseOutages() {
+        java.sql.SQLException cause = new java.sql.SQLException("connect to secret-host:5432 refused");
+        return java.util.stream.Stream.of(
+                new CannotGetJdbcConnectionException("Failed to obtain JDBC Connection", cause),
+                new CannotCreateTransactionException("Could not open JPA EntityManager for transaction", cause),
+                new DataAccessResourceFailureException("connection reset", cause),
+                new QueryTimeoutException("statement timeout", cause),
+                new CannotAcquireLockException("lock timeout", cause),
+                // wrapped by something else on the way up
+                new IllegalStateException("tx failed", new CannotGetJdbcConnectionException("pool", cause)));
+    }
+
+    @Test
+    void optimisticLockConflict_is409NotAnOutage() throws Exception {
+        given(orderService.confirmOrder(1L)).willThrow(new ObjectOptimisticLockingFailureException(com.ecommerce.order.model.Order.class, 1L));
+
+        mockMvc.perform(post("/api/v1/orders/1/confirm"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("The order was modified by another request"));
+    }
+
+    private static final class DatabaseGoneForThisTest extends CannotGetJdbcConnectionException {
+        DatabaseGoneForThisTest() {
+            super("pool exhausted");
+        }
+    }
+
+    private static final class BugForThisTest extends RuntimeException {
+        BugForThisTest() {
+            super("boom");
+        }
+    }
+
+    /** A dead database under load must cost one line, not one per request, and no stack trace. */
+    @Test
+    void aHundredRequestsDuringAnOutage_writeOneWarnWithoutStackTrace() throws Exception {
+        given(orderService.getOrderById(1L)).willThrow(new DatabaseGoneForThisTest());
+
+        for (int i = 0; i < 100; i++) {
+            mockMvc.perform(get("/api/v1/orders/1")).andExpect(status().isServiceUnavailable());
+        }
+
+        assertThat(logs.list).filteredOn(e -> e.getLevel().isGreaterOrEqual(Level.WARN)).hasSize(1)
+                .allSatisfy(e -> {
+                    assertThat(e.getLevel()).isEqualTo(Level.WARN);
+                    assertThat(e.getThrowableProxy()).as("no stack trace for a dead dependency").isNull();
+                });
+    }
+
+    /** A bug on a hot path logs its stack trace once per window, however many requests hit it. */
+    @Test
+    void aHundredRequestsHittingOneBug_writeOneStackTrace() throws Exception {
+        given(orderService.getOrderById(1L)).willThrow(new BugForThisTest());
+
+        for (int i = 0; i < 100; i++) {
+            mockMvc.perform(get("/api/v1/orders/1")).andExpect(status().isInternalServerError());
+        }
+
+        assertThat(logs.list).filteredOn(e -> e.getLevel() == Level.ERROR).hasSize(1)
+                .allSatisfy(e -> assertThat(e.getThrowableProxy()).isNotNull());
+    }
+
+    @Test
+    void aHundredDownstream404s_writeAtMostOneLine() throws Exception {
+        given(orderService.addItemToOrder(1L, 7L, 1)).willThrow(feignError(404));
+
+        for (int i = 0; i < 100; i++) {
+            mockMvc.perform(post("/api/v1/orders/1/products").param("productId", "7")).andExpect(status().isNotFound());
+        }
+
+        assertThat(logs.list).filteredOn(e -> e.getLevel().isGreaterOrEqual(Level.WARN)).hasSizeLessThanOrEqualTo(1)
+                .allSatisfy(e -> assertThat(e.getThrowableProxy()).isNull());
+    }
+
+    @Test
+    void aPeerThatNeverAnswers_isAtMostOneLineWithoutStackTrace() throws Exception {
+        Request request = Request.create(Request.HttpMethod.GET, "http://product-service/api/v1/products/1",
+                Map.of(), null, StandardCharsets.UTF_8, null);
+        given(orderService.addItemToOrder(1L, 8L, 1))
+                .willThrow(new RetryableException(-1, "Read timed out", Request.HttpMethod.GET,
+                        new java.net.SocketTimeoutException("Read timed out"), (Long) null, request));
+
+        for (int i = 0; i < 50; i++) {
+            mockMvc.perform(post("/api/v1/orders/1/products").param("productId", "8")).andExpect(status().isServiceUnavailable());
+        }
+
+        assertThat(logs.list).filteredOn(e -> e.getLevel().isGreaterOrEqual(Level.WARN)).hasSizeLessThanOrEqualTo(1)
+                .allSatisfy(e -> assertThat(e.getThrowableProxy()).isNull());
+    }
+
+    /**
+     * A killed database backend: the rollback fails too, and Spring's TransactionSystemException replaces the original
+     * error. It is an outage (503, one line), not a bug (500 and hundreds of lines of stack trace).
+     */
+    @Test
+    void aRollbackThatFailedBecauseTheBackendWasKilled_is503_andCostsOneLineForAHundredRequests() throws Exception {
+        org.springframework.transaction.TransactionSystemException failure = new org.springframework.transaction.TransactionSystemException(
+                "Could not roll back JPA transaction", new jakarta.persistence.PersistenceException("Unable to rollback against JDBC Connection",
+                new java.sql.SQLException("This connection has been closed. secret-host", "08003")));
+        given(orderService.getOrderById(1L)).willThrow(failure);
+
+        for (int i = 0; i < 100; i++) {
+            mockMvc.perform(get("/api/v1/orders/1"))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.message").value("Service temporarily unavailable"))
+                    .andExpect(content().string(org.hamcrest.Matchers.not(containsString("secret-host"))));
+        }
+
+        assertThat(logs.list).filteredOn(e -> e.getLevel().isGreaterOrEqual(Level.WARN)).hasSizeLessThanOrEqualTo(1)
+                .allSatisfy(e -> {
+                    assertThat(e.getThrowableProxy()).as("no stack trace for a dead database").isNull();
+                    assertThat(e.getFormattedMessage()).contains("TransactionSystemException (SQLException: This connection has been closed.");
+                });
     }
 }

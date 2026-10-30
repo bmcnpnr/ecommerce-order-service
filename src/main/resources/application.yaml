@@ -11,7 +11,20 @@ spring:
       # peer fails with "Load balancer does not contain an instance".
       eager-load:
         clients: product-service
+    # Spring Cloud CircuitBreaker, left on its defaults, hands every call to a worker thread behind a time limiter
+    # (1 s, which silently cuts every slower call) and a bulkhead thread pool of one thread per CPU with a
+    # 100-call queue (two concurrent calls in a 2-CPU container, the rest rejected). All three are off: the call
+    # runs on the calling thread, Feign's connect and read timeouts below govern, and the breaker only counts.
+    circuitbreaker:
+      resilience4j:
+        disable-thread-pool: true
+        disable-time-limiter: true
+      bulkhead:
+        resilience4j:
+          enabled: false
     openfeign:
+      circuitbreaker:
+        enabled: true
       client:
         config:
           default:
@@ -34,9 +47,21 @@ spring:
     username: ${DB_USERNAME:orderuser}
     password: ${DB_PASSWORD:orderpass}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      # A request waits at most 5 s for a pooled connection (then 503), not the 30 s default
+      # that queues threads behind a stuck database.
+      connection-timeout: 5000
+      # pgjdbc defaults to no socket timeout: a database that stops answering (dropped packets, frozen host)
+      # would hold the request thread or the Kafka consumer thread until the OS gives up, many minutes later.
+      data-source-properties:
+        connectTimeout: 5   # seconds
+        socketTimeout: 30   # seconds a read may block; statements here take milliseconds
+        tcpKeepAlive: true
   jpa:
     hibernate:
       ddl-auto: validate
+    # No Hibernate session (and no pooled connection) held for the rest of the request after the service returns.
+    open-in-view: false
     show-sql: false
     # No hibernate.dialect: Hibernate detects it from the connection (PostgreSQL
     # here, H2 under the test profile); setting it explicitly is deprecated.
@@ -49,6 +74,16 @@ spring:
     # classpath (plain spring-kafka), so producer and consumer settings live in
     # config/KafkaProducerConfig.java, which reads this through @Value.
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+  task:
+    scheduling:
+      # Two jobs: the outbox relay (every 500 ms) and ReservationExpiryJob, which calls product-service and
+      # can wait on it. On Boot's single scheduler thread a slow expiry pass would hold back every event.
+      pool:
+        size: 2
+      shutdown:
+        # let a relay run that is mid-batch finish instead of interrupting it on SIGTERM
+        await-termination: true
+        await-termination-period: 20s
 
 eureka:
   client:
@@ -79,6 +114,11 @@ resilience4j:
         permittedNumberOfCallsInHalfOpenState: 3
         waitDurationInOpenState: 10s
         failureRateThreshold: 50
+        # A product-service that answers, but slowly, still holds a request thread per call for up to the read
+        # timeout (10 s). Calls over 5 s count as slow, and when 80 % of the window is slow the breaker opens
+        # and the rest fail fast instead of piling up behind it.
+        slowCallDurationThreshold: 5s
+        slowCallRateThreshold: 80
         # Without this the breaker leaves OPEN only when a call is attempted, so
         # an idle service stays tripped indefinitely.
         automaticTransitionFromOpenToHalfOpenEnabled: true
@@ -129,8 +169,37 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
 
+# Abandoned carts: ReservationExpiryJob cancels PENDING orders nobody has touched for pending-ttl and returns the
+# stock they reserved. CONFIRMED orders are never expired (their payment may still be on its way).
+orders:
+  reservation:
+    pending-ttl: PT24H
+    expiry:
+      enabled: true
+      interval-ms: 600000
+      initial-delay-ms: 60000
+      batch-size: 100
+
+# Transactional outbox (OutboxRelay): events are written with the state change and published from here.
+# outbox.relay.enabled=false switches the relay off (the H2 test profile does: its native query is Postgres-only).
+outbox:
+  relay:
+    enabled: true
+    interval-ms: 500
+    batch-size: 100
+
 logging:
   pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] [%X{correlationId}] %-5level %logger{36} - %msg%n"
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] [%X{correlationId:-}] [%X{traceId:-}] %-5level %logger{36} - %msg%n"
   level:
-    com.ecommerce: DEBUG
+    # DEBUG is a switch (LOGGING_LEVEL_COM_ECOMMERCE=DEBUG), not a default.
+    com.ecommerce: INFO
+    # Hibernate writes two WARN lines (SQLState, then the driver's message) for every failed JDBC call: with the
+    # database down that is two lines per request, however busy the service is. The exception itself reaches
+    # GlobalExceptionHandler, which logs one throttled line naming the cause.
+    org.hibernate.orm.jdbc.error: "OFF"
+    # When a database backend dies mid-transaction the rollback fails too, and Spring logs the application exception
+    # it replaces ("Application exception overridden by rollback exception") with its whole stack trace: hundreds of
+    # lines per request. GlobalExceptionHandler reports the outage once, throttled, with the cause.
+    org.springframework.transaction.interceptor.TransactionInterceptor: "OFF"
+    org.springframework.transaction.support.TransactionTemplate: "OFF"

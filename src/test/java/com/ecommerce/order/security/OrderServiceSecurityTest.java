@@ -51,7 +51,8 @@ class OrderServiceSecurityTest {
 
     @BeforeEach
     void setUp() {
-        service = new OrderService(orderRepository, productServiceClient, orderEventProducer);
+        service = new OrderService(orderRepository, productServiceClient, orderEventProducer,
+                org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class));
         org.mockito.Mockito.lenient().when(orderRepository.save(any(Order.class))).thenAnswer(i -> i.getArgument(0));
     }
 

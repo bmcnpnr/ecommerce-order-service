@@ -33,6 +33,7 @@ import org.springframework.cloud.openfeign.FeignAutoConfiguration;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -115,6 +116,9 @@ class ProductServiceConsumerPactTest {
 
     @MockitoBean
     private OrderEventProducer orderEventProducer;
+
+    @MockitoBean
+    private PlatformTransactionManager transactionManager; // OrderService runs its write steps in programmatic transactions
 
     // ───────────────────────────── pacts ─────────────────────────────
 

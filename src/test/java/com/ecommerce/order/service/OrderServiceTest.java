@@ -17,6 +17,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Pageable;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -34,6 +36,7 @@ class OrderServiceTest {
     @Mock private OrderRepository orderRepository;
     @Mock private ProductServiceClient productServiceClient;
     @Mock private OrderEventProducer orderEventProducer;
+    @Mock private PlatformTransactionManager transactionManager;
 
     @InjectMocks private OrderService orderService;
 
@@ -345,17 +348,17 @@ class OrderServiceTest {
     @Test
     void getOrdersByCustomer_mapsEveryOrder() {
         Order other = Order.builder().orderId(2L).customerId("user1").status(OrderStatus.PAID).build();
-        when(orderRepository.findByCustomerId("user1")).thenReturn(List.of(testOrder, other));
+        when(orderRepository.findByCustomerId(eq("user1"), any(Pageable.class))).thenReturn(List.of(testOrder, other));
 
-        assertThat(orderService.getOrdersByCustomer("user1"))
+        assertThat(orderService.getOrdersByCustomer("user1", 0, 100))
                 .extracting(OrderDTO::getOrderId, OrderDTO::getStatus)
                 .containsExactly(tuple(1L, "PENDING"), tuple(2L, "PAID"));
     }
 
     @Test
     void getOrdersByCustomer_none_returnsEmptyList() {
-        when(orderRepository.findByCustomerId("nobody")).thenReturn(List.of());
-        assertThat(orderService.getOrdersByCustomer("nobody")).isEmpty();
+        when(orderRepository.findByCustomerId(eq("nobody"), any(Pageable.class))).thenReturn(List.of());
+        assertThat(orderService.getOrdersByCustomer("nobody", 0, 100)).isEmpty();
     }
 
     @Test

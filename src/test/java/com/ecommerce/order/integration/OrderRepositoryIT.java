@@ -57,7 +57,7 @@ class OrderRepositoryIT extends ContainersBase {
         List<String> versions = entityManager.createNativeQuery(
                 "select version from flyway_schema_history where success order by installed_rank").getResultList();
 
-        assertThat(versions).containsExactly("1", "2");
+        assertThat(versions).containsExactly("1", "2", "3", "4", "5");
     }
 
     @Test
@@ -116,11 +116,11 @@ class OrderRepositoryIT extends ContainersBase {
         orderRepository.save(order("someone-else", OrderStatus.PENDING));
         flushAndClear();
 
-        List<Order> orders = orderRepository.findByCustomerId("cust-d");
+        List<Order> orders = orderRepository.findByCustomerId("cust-d", org.springframework.data.domain.PageRequest.of(0, 100));
 
         assertThat(orders).hasSize(2).allSatisfy(o -> assertThat(o.getCustomerId()).isEqualTo("cust-d"));
         assertThat(orders).extracting(o -> o.getOrderItems().size()).containsExactlyInAnyOrder(1, 0);
-        assertThat(orderRepository.findByCustomerId("nobody")).isEmpty();
+        assertThat(orderRepository.findByCustomerId("nobody", org.springframework.data.domain.PageRequest.of(0, 100))).isEmpty();
     }
 
     @Test
@@ -163,5 +163,78 @@ class OrderRepositoryIT extends ContainersBase {
         entityManager.createNativeQuery("delete from orders where order_id = ?1").setParameter(1, id).executeUpdate();
 
         assertThat(itemRowCount(id)).isZero();
+    }
+
+    // ---- last change (V5) and the abandoned-cart query ------------------------------------------
+
+    private void setUpdatedAt(long orderId, LocalDateTime when) {
+        entityManager.createNativeQuery("update orders set updated_at = ?1 where order_id = ?2")
+                .setParameter(1, when).setParameter(2, orderId).executeUpdate();
+    }
+
+    private LocalDateTime updatedAtInTheDatabase(long orderId) {
+        Object value = entityManager.createNativeQuery("select updated_at from orders where order_id = ?1")
+                .setParameter(1, orderId).getSingleResult();
+        return value instanceof LocalDateTime time ? time : ((java.sql.Timestamp) value).toLocalDateTime();
+    }
+
+    private long savedAt(OrderStatus status, LocalDateTime lastChange) {
+        long id = orderRepository.saveAndFlush(order("cust-idle", status)).getOrderId();
+        setUpdatedAt(id, lastChange);
+        return id;
+    }
+
+    @Test
+    void updatedAt_isSetOnInsert_movesWhenARowIsWritten_andStaysWhenNothingChanged() {
+        long id = orderRepository.saveAndFlush(order("cust-touch", OrderStatus.PENDING)).getOrderId();
+        LocalDateTime longAgo = LocalDateTime.now().minusDays(2).withNano(0);
+        setUpdatedAt(id, longAgo);
+        entityManager.clear();
+
+        // nothing changed: Hibernate writes nothing, so the last-change time stays
+        orderRepository.saveAndFlush(orderRepository.findById(id).orElseThrow());
+        assertThat(updatedAtInTheDatabase(id)).isEqualTo(longAgo);
+        entityManager.clear();
+
+        // an item is added (the total changes): the row is written and the last-change time moves to now
+        Order cart = orderRepository.findById(id).orElseThrow();
+        cart.addItem(item(1L, "5.00", 2));
+        orderRepository.saveAndFlush(cart);
+        entityManager.clear();
+        assertThat(updatedAtInTheDatabase(id)).isAfter(LocalDateTime.now().minusMinutes(1));
+    }
+
+    @Test
+    void findIdsIdleSince_returnsOnlyPendingOrdersIdleStrictlyBeforeTheCutoff_oldestFirst() {
+        LocalDateTime cutoff = LocalDateTime.now().minusHours(24).withNano(0);
+        long oldest = savedAt(OrderStatus.PENDING, cutoff.minusDays(3));
+        long older = savedAt(OrderStatus.PENDING, cutoff.minusHours(2));
+        long justUnder = savedAt(OrderStatus.PENDING, cutoff.minusNanos(1_000));
+        long exactlyAtCutoff = savedAt(OrderStatus.PENDING, cutoff);
+        long fresh = savedAt(OrderStatus.PENDING, cutoff.plusHours(23));
+        long confirmed = savedAt(OrderStatus.CONFIRMED, cutoff.minusDays(3));
+        long paid = savedAt(OrderStatus.PAID, cutoff.minusDays(3));
+        long cancelled = savedAt(OrderStatus.CANCELLED, cutoff.minusDays(3));
+        List<Long> mine = List.of(oldest, older, justUnder, exactlyAtCutoff, fresh, confirmed, paid, cancelled);
+
+        List<Long> idle = orderRepository.findIdsIdleSince(OrderStatus.PENDING, cutoff, org.springframework.data.domain.PageRequest.of(0, 100));
+
+        assertThat(idle.stream().filter(mine::contains)).containsExactly(oldest, older, justUnder);
+        assertThat(idle).doesNotContain(exactlyAtCutoff, fresh, confirmed, paid, cancelled);
+    }
+
+    @Test
+    void findIdsIdleSince_isBounded_andThePagesFollowOnFromEachOther() {
+        LocalDateTime cutoff = LocalDateTime.now().minusHours(24).withNano(0);
+        for (int i = 0; i < 5; i++) {
+            savedAt(OrderStatus.PENDING, cutoff.minusHours(10 + i));
+        }
+
+        List<Long> all = orderRepository.findIdsIdleSince(OrderStatus.PENDING, cutoff, org.springframework.data.domain.PageRequest.of(0, 100));
+        List<Long> firstTwo = orderRepository.findIdsIdleSince(OrderStatus.PENDING, cutoff, org.springframework.data.domain.PageRequest.of(0, 2));
+        List<Long> nextTwo = orderRepository.findIdsIdleSince(OrderStatus.PENDING, cutoff, org.springframework.data.domain.PageRequest.of(1, 2));
+
+        assertThat(firstTwo).hasSize(2).isEqualTo(all.subList(0, 2));
+        assertThat(nextTwo).hasSize(2).isEqualTo(all.subList(2, 4));
     }
 }

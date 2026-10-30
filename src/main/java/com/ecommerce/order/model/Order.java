@@ -48,6 +48,34 @@ public class Order {
     @Builder.Default
     private OrderStatus status = OrderStatus.PENDING;
 
+    /**
+     * Optimistic lock (V4 migration). Adding an item calls product-service between reading and writing the
+     * order, outside any database transaction, so two writers can start from the same state; the loser's
+     * UPDATE finds a newer version and fails instead of overwriting the other's total or status.
+     */
+    @Version
+    @Column(name = "version", nullable = false, columnDefinition = "BIGINT NOT NULL DEFAULT 0")
+    private Long version;
+
+    /**
+     * When the order last changed (V5 migration), set by {@link #touch()} on insert and on every update that
+     * writes the row. {@code ReservationExpiryJob} cancels a PENDING cart that has been idle for longer than
+     * the reservation TTL, so this has to move whenever the customer touches the cart.
+     */
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+
+    @PrePersist
+    @PreUpdate
+    void touch() {
+        updatedAt = LocalDateTime.now();
+    }
+
+    /** When the order last changed; the creation date for a row that predates the column. */
+    public LocalDateTime lastChange() {
+        return updatedAt != null ? updatedAt : orderDate;
+    }
+
     public void addItem(OrderItem orderItem) {
         if (orderItems == null) {
             orderItems = new ArrayList<>();

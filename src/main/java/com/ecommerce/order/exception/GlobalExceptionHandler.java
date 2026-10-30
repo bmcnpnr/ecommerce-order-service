@@ -1,5 +1,7 @@
 package com.ecommerce.order.exception;
 
+import com.ecommerce.order.logging.LogThrottle;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,18 +15,30 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
  * Every client error is a 4xx with a fixed message per error kind: no Java type names, parser text,
  * SQL, internal URLs, Feign client names or downstream bodies reach the response. Details go to the log.
+ *
+ * <p>What reaches the log is bounded (L3, L4, L6): a failure that repeats at request rate writes one line
+ * per kind per 10 s with a count of what was swallowed, never a stack trace per request. A dependency that
+ * does not answer (database, broker, product-service) is a 503 and one line without a stack trace; a bug is
+ * a 500 and its stack trace once per failure site per window. The client gets the same body either way,
+ * with its correlation id, and the trace of every request is in Tempo.
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    static final String UNAVAILABLE_MESSAGE = "Product service unavailable. Please try again later.";
+    static final String UNAVAILABLE_MESSAGE = "Service temporarily unavailable";
+    private static final String DOWNSTREAM_UNAVAILABLE_MESSAGE = "Downstream service call failed: service unavailable";
+
+    private static final LogThrottle ERROR_LOG = new LogThrottle(10, TimeUnit.SECONDS);
+    private static final LogThrottle UNAVAILABLE_LOG = new LogThrottle(10, TimeUnit.SECONDS);
+    private static final LogThrottle CLIENT_ERROR_LOG = new LogThrottle(10, TimeUnit.SECONDS);
 
     @ExceptionHandler(OrderNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleOrderNotFound(OrderNotFoundException ex, HttpServletRequest req) {
@@ -87,30 +101,43 @@ public class GlobalExceptionHandler {
             default -> HttpStatus.BAD_GATEWAY;
         };
         if (status.is4xxClientError()) {
-            log.warn("Downstream rejected {} {} -> {}", req.getMethod(), req.getRequestURI(), status);
+            // Any authenticated caller can make product-service answer 4xx at request rate (unknown ids).
+            long suppressed = CLIENT_ERROR_LOG.acquire("downstream.4xx");
+            if (suppressed >= 0) {
+                log.warn("Downstream rejected {} {} -> {}{}", req.getMethod(), req.getRequestURI(), status,
+                        LogThrottle.suppressedSuffix(suppressed));
+            }
+        } else if (status == HttpStatus.SERVICE_UNAVAILABLE) {
+            logUnavailable(ex, req);
         } else {
-            log.error("Downstream call failed on {} {} -> feign status {} mapped to {}",
-                    req.getMethod(), req.getRequestURI(), ex.status(), status, ex);
+            logUnexpected("Downstream call failed (feign status " + ex.status() + " mapped to " + status + ")", ex, req);
         }
         String message = switch (status) {
             case NOT_FOUND -> "Downstream service call failed: resource not found";
             case BAD_REQUEST, CONFLICT -> "Downstream service call failed: request rejected";
-            case SERVICE_UNAVAILABLE -> "Downstream service call failed: service unavailable";
+            case SERVICE_UNAVAILABLE -> DOWNSTREAM_UNAVAILABLE_MESSAGE;
             default -> "Downstream service call failed";
         };
         return ResponseEntity.status(status).body(build(status, status.getReasonPhrase(), message, req.getRequestURI()));
     }
 
+    /** The product-service breaker is open: fail fast, with the same answer as a peer that does not respond. */
+    @ExceptionHandler(CallNotPermittedException.class)
+    public ResponseEntity<ErrorResponse> handleBreakerOpen(CallNotPermittedException ex, HttpServletRequest req) {
+        logUnavailable(ex, req);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(build(HttpStatus.SERVICE_UNAVAILABLE,
+                "Service Unavailable", DOWNSTREAM_UNAVAILABLE_MESSAGE, req.getRequestURI()));
+    }
+
+    /** Two callers changed the same order at once (add item, confirm, cancel, payment event): the later write lost. */
+    @ExceptionHandler(org.springframework.dao.OptimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponse> handleConflict(Exception ex, HttpServletRequest req) {
+        return client(HttpStatus.CONFLICT, "The order was modified by another request", req);
+    }
+
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<ErrorResponse> handleRuntime(RuntimeException ex, HttpServletRequest req) {
-        if (ex.getMessage() != null && ex.getMessage().contains("unavailable")) {
-            log.warn("Downstream unavailable on {} {}: {}", req.getMethod(), req.getRequestURI(), ex.getMessage());
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(build(HttpStatus.SERVICE_UNAVAILABLE, "Service Unavailable", UNAVAILABLE_MESSAGE, req.getRequestURI()));
-        }
-        // The client gets a generic message, so the cause has to be logged here or it is lost entirely.
-        log.error("Unhandled runtime exception on {} {} (correlationId={})",
-                req.getMethod(), req.getRequestURI(), MDC.get("correlationId"), ex);
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(build(HttpStatus.INTERNAL_SERVER_ERROR, "Internal Server Error", "An unexpected error occurred", req.getRequestURI()));
+        return handleUnexpected(ex, req);
     }
 
     // ---- Spring MVC client errors: fixed messages, never the framework's text ----
@@ -163,8 +190,39 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneral(Exception ex, HttpServletRequest req) {
-        log.error("Unhandled exception on {} {} (correlationId={})", req.getMethod(), req.getRequestURI(), MDC.get("correlationId"), ex);
+        return handleUnexpected(ex, req);
+    }
+
+    // ---- everything that is not the caller's fault ----
+
+    private ResponseEntity<ErrorResponse> handleUnexpected(Exception ex, HttpServletRequest req) {
+        Throwable dependency = Unavailability.dependencyFailure(ex);
+        if (dependency != null) {
+            logUnavailable(dependency, req);
+            String message = Unavailability.isPeerUnavailable(dependency) ? DOWNSTREAM_UNAVAILABLE_MESSAGE : UNAVAILABLE_MESSAGE;
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(build(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Service Unavailable", message, req.getRequestURI()));
+        }
+        // The client gets a generic message, so the cause has to be logged here or it is lost entirely.
+        logUnexpected("Unhandled exception", ex, req);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(build(HttpStatus.INTERNAL_SERVER_ERROR, "Internal Server Error", "An unexpected error occurred", req.getRequestURI()));
+    }
+
+    /** A dead dependency is not a bug: one WARN per kind per window, no stack trace. */
+    private void logUnavailable(Throwable dependency, HttpServletRequest req) {
+        long suppressed = UNAVAILABLE_LOG.acquire(dependency.getClass().getName());
+        if (suppressed >= 0) {
+            log.warn("Dependency unavailable on {} {}: {}{}", req.getMethod(), req.getRequestURI(),
+                    Unavailability.describe(dependency), LogThrottle.suppressedSuffix(suppressed));
+        }
+    }
+
+    private void logUnexpected(String what, Exception ex, HttpServletRequest req) {
+        long suppressed = ERROR_LOG.acquire(LogThrottle.keyOf(ex));
+        if (suppressed >= 0) {
+            log.error("{} on {} {} (correlationId={}){}", what, req.getMethod(), req.getRequestURI(),
+                    MDC.get("correlationId"), LogThrottle.suppressedSuffix(suppressed), ex);
+        }
     }
 
     private ResponseEntity<ErrorResponse> client(HttpStatus status, String message, HttpServletRequest req) {

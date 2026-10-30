@@ -3,6 +3,14 @@ package com.ecommerce.order.integration;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.serialization.StringDeserializer;
+import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -11,8 +19,11 @@ import org.testcontainers.kafka.ConfluentKafkaContainer;
 import org.testcontainers.lifecycle.Startables;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Postgres and Kafka shared by every *IT class: the containers are static and
@@ -53,5 +64,37 @@ public abstract class ContainersBase {
     @DynamicPropertySource
     static void kafkaProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.kafka.bootstrap-servers", KAFKA::getBootstrapServers);
+    }
+
+    static KafkaProducer<String, String> rawProducer() {
+        return new KafkaProducer<>(Map.of(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers()),
+                new StringSerializer(), new StringSerializer());
+    }
+
+    static void publish(String topic, String key, String json) throws Exception {
+        try (KafkaProducer<String, String> producer = rawProducer()) {
+            producer.send(new ProducerRecord<>(topic, key, json)).get();
+        }
+    }
+
+    /** Reads {@code topic} from the beginning (fresh group) until a record with {@code key} arrives. */
+    static ConsumerRecord<String, String> awaitRecord(String topic, String key, Duration timeout) {
+        Map<String, Object> config = Map.of(
+                ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers(),
+                ConsumerConfig.GROUP_ID_CONFIG, "it-" + UUID.randomUUID(),
+                ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        try (KafkaConsumer<String, String> consumer =
+                     new KafkaConsumer<>(config, new StringDeserializer(), new StringDeserializer())) {
+            consumer.subscribe(List.of(topic));
+            Instant deadline = Instant.now().plus(timeout);
+            while (Instant.now().isBefore(deadline)) {
+                for (ConsumerRecord<String, String> record : consumer.poll(Duration.ofMillis(500))) {
+                    if (key.equals(record.key())) {
+                        return record;
+                    }
+                }
+            }
+        }
+        throw new AssertionError("No record with key " + key + " on " + topic + " within " + timeout);
     }
 }

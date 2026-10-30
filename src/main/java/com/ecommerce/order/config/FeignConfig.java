@@ -7,8 +7,11 @@ import feign.RetryableException;
 import feign.Retryer;
 import org.apache.hc.client5.http.ConnectTimeoutException;
 
+import org.apache.hc.client5.http.impl.classic.HttpClientBuilder;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.http.converter.autoconfigure.ClientHttpMessageConvertersCustomizer;
+import org.springframework.cloud.openfeign.CircuitBreakerNameResolver;
+import org.springframework.cloud.openfeign.clientconfig.HttpClient5FeignConfiguration;
 import org.springframework.cloud.openfeign.support.FeignHttpMessageConverters;
 import org.springframework.cloud.openfeign.support.HttpMessageConverterCustomizer;
 import org.springframework.context.annotation.Bean;
@@ -38,6 +41,27 @@ public class FeignConfig {
             ObjectProvider<ClientHttpMessageConvertersCustomizer> customizers,
             ObjectProvider<HttpMessageConverterCustomizer> cloudCustomizers) {
         return new ThreadSafeFeignHttpMessageConverters(customizers, cloudCustomizers);
+    }
+
+    /**
+     * Apache HttpClient 5 retries on its own underneath Feign (R-6): an idempotent GET once on a 503 or a
+     * reset connection. That doubles the load on a peer that is already struggling and makes the
+     * documented policy untrue, so it is switched off and {@link ConnectionFailureRetryer} below is the
+     * only retry.
+     */
+    @Bean
+    public HttpClient5FeignConfiguration.HttpClientBuilderCustomizer noHttpClientAutomaticRetries() {
+        return HttpClientBuilder::disableAutomaticRetries;
+    }
+
+    /**
+     * One circuit breaker per Feign client, named after it, instead of one per method: the two product-service
+     * endpoints fail together, and the breaker's settings live under
+     * {@code resilience4j.circuitbreaker.instances.product-service}.
+     */
+    @Bean
+    public CircuitBreakerNameResolver circuitBreakerNameResolver() {
+        return (feignClientName, target, method) -> feignClientName;
     }
 
     /**

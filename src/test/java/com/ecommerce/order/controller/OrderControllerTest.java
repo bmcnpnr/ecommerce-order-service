@@ -89,11 +89,30 @@ class OrderControllerTest {
     void testGetOrdersByCustomer() throws Exception {
         var orderDTO = generateOrderDTO();
 
-        given(orderService.getOrdersByCustomer("user_1")).willReturn(List.of(orderDTO));
+        given(orderService.getOrdersByCustomer("user_1", 0, 100)).willReturn(List.of(orderDTO));
 
         mockMvc.perform(get("/api/v1/orders/customer/user_1"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(objectMapper.writeValueAsString(List.of(orderDTO))));
+    }
+
+    @Test
+    void testGetOrdersByCustomer_pageAndSizeArePassedOn() throws Exception {
+        given(orderService.getOrdersByCustomer("user_1", 2, 25)).willReturn(List.of(generateOrderDTO()));
+
+        mockMvc.perform(get("/api/v1/orders/customer/user_1").param("page", "2").param("size", "25"))
+                .andExpect(status().isOk());
+
+        verify(orderService).getOrdersByCustomer("user_1", 2, 25);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"101,0", "0,0", "-1,0", "100,-1", "100000000,0"})
+    void testGetOrdersByCustomer_sizeOrPageOutOfRange_is400AndNeverReachesTheDatabase(int size, int page) throws Exception {
+        mockMvc.perform(get("/api/v1/orders/customer/user_1").param("size", String.valueOf(size)).param("page", String.valueOf(page)))
+                .andExpect(status().isBadRequest());
+
+        org.mockito.Mockito.verifyNoInteractions(orderService);
     }
 
     @Test

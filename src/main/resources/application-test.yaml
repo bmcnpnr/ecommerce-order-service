@@ -20,3 +20,14 @@ eureka:
     enabled: false
     register-with-eureka: false
     fetch-registry: false
+
+# The relay's SELECT ... FOR UPDATE SKIP LOCKED is Postgres SQL; the *IT classes run the real relay.
+outbox:
+  relay:
+    enabled: false
+
+# The expiry job needs no scheduler in the H2 contexts; the *IT classes run it for real.
+orders:
+  reservation:
+    expiry:
+      enabled: false

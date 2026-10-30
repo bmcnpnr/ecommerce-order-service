@@ -1,17 +1,15 @@
 package com.ecommerce.order.integration;
 
+import com.ecommerce.order.config.KafkaProducerConfig;
 import com.ecommerce.order.event.OrderPlacedEvent;
 import com.ecommerce.order.model.Order;
 import com.ecommerce.order.repository.OrderRepository;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.common.serialization.Serializer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.kafka.core.DefaultKafkaProducerFactory;
-import org.springframework.kafka.core.ProducerFactory;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -40,7 +38,6 @@ class OrderFlowIT extends ApplicationTestBase {
 
     @Autowired private JdbcTemplate jdbc;
     @Autowired private OrderRepository orderRepository;
-    @Autowired private ProducerFactory<String, Object> producerFactory;
 
     private final ObjectMapper json = new ObjectMapper();
 
@@ -119,10 +116,7 @@ class OrderFlowIT extends ApplicationTestBase {
                         .productId(i.getProductId()).productName(i.getProductName())
                         .productPrice(i.getProductPrice()).quantity(i.getQuantity()).build()).toList())
                 .build();
-        @SuppressWarnings("unchecked")
-        Serializer<Object> serializer = (Serializer<Object>)
-                ((DefaultKafkaProducerFactory<String, Object>) producerFactory).getValueSerializer();
-        assertThat(payload).isEqualTo(json.readTree(serializer.serialize("order.placed", expected)));
+        assertThat(payload).isEqualTo(json.readTree(KafkaProducerConfig.eventJsonMapper().writeValueAsString(expected)));
     }
 
     @Test

@@ -25,6 +25,7 @@ public class OrderController {
     private static final String USER = "X-Username";
     private static final String ROLE = "X-User-Role";
     static final int MAX_QUANTITY = 1000;
+    static final int MAX_PAGE_SIZE = 100;
 
     private final OrderService orderService;
     private final OrderAccess access;
@@ -57,12 +58,17 @@ public class OrderController {
     }
 
     @GetMapping("/customer/{customerId}")
-    @Operation(summary = "Get orders by customer ID (that customer or admin)")
+    @Operation(summary = "Get orders by customer ID, newest first (that customer or admin); at most 100 per page")
     public ResponseEntity<List<OrderDTO>> getOrdersByCustomer(@PathVariable String customerId,
+                                                              @RequestParam(defaultValue = "0") int page,
+                                                              @RequestParam(defaultValue = "" + MAX_PAGE_SIZE) int size,
                                                               @RequestHeader(value = USER, required = false) String username,
                                                               @RequestHeader(value = ROLE, required = false) String role) {
         access.requireCustomerOrAdmin(username, role, customerId);
-        return ResponseEntity.ok(orderService.getOrdersByCustomer(customerId));
+        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
+            throw new BadRequestException("page must be at least 0 and size between 1 and " + MAX_PAGE_SIZE);
+        }
+        return ResponseEntity.ok(orderService.getOrdersByCustomer(customerId, page, size));
     }
 
     @PostMapping("/{orderId}/items")

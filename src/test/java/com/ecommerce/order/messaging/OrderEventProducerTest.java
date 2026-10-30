@@ -3,29 +3,37 @@ package com.ecommerce.order.messaging;
 import com.ecommerce.order.config.KafkaProducerConfig;
 import com.ecommerce.order.event.OrderCancelledEvent;
 import com.ecommerce.order.event.OrderPlacedEvent;
-import org.apache.kafka.common.serialization.Serializer;
+import com.ecommerce.order.outbox.OutboxEvent;
+import com.ecommerce.order.outbox.OutboxEventRepository;
+import org.apache.kafka.common.header.internals.RecordHeaders;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.kafka.core.DefaultKafkaProducerFactory;
-import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
+/**
+ * The producer no longer talks to Kafka: it writes the record to the outbox table in the caller's
+ * transaction and OutboxRelay publishes it. What must not change is the record itself: topic, key and the
+ * exact JSON bytes consumers and the Pact contracts depend on.
+ */
 @ExtendWith(MockitoExtension.class)
 class OrderEventProducerTest {
 
-    @Mock private KafkaTemplate<String, Object> kafkaTemplate;
+    @Mock private OutboxEventRepository outbox;
 
     @InjectMocks private OrderEventProducer producer;
 
@@ -39,42 +47,41 @@ class OrderEventProducerTest {
                 .build();
     }
 
-    @Test
-    void publishOrderPlaced_sendsToOrderPlacedTopicKeyedByOrderId() {
-        OrderPlacedEvent event = placedEvent();
-
-        producer.publishOrderPlaced(event);
-
-        verify(kafkaTemplate).send("order.placed", "42", event);
+    private OutboxEvent saved() {
+        ArgumentCaptor<OutboxEvent> captor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outbox).save(captor.capture());
+        verifyNoMoreInteractions(outbox);
+        return captor.getValue();
     }
 
     @Test
-    void publishOrderCancelled_sendsToOrderCancelledTopicKeyedByOrderId() {
-        OrderCancelledEvent event = OrderCancelledEvent.builder().orderId(42L).customerId("user1").cancelledAt(TIME).build();
+    void publishOrderPlaced_queuesARecordForOrderPlacedKeyedByOrderId() {
+        producer.publishOrderPlaced(placedEvent());
 
-        producer.publishOrderCancelled(event);
-
-        verify(kafkaTemplate).send("order.cancelled", "42", event);
+        OutboxEvent row = saved();
+        assertThat(row.getTopic()).isEqualTo("order.placed");
+        assertThat(row.getEventKey()).isEqualTo("42");
+        assertThat(row.getCreatedAt()).isNotNull();
+        assertThat(row.getAttempts()).isZero();
+        assertThat(row.getParkedAt()).isNull();
     }
 
-    /**
-     * The payload the template is handed is serialized by the value serializer on the
-     * production ProducerFactory. Consumers (and the Pact contracts) pin java.time as
-     * the numeric array form, and no type headers may be added.
-     */
     @Test
-    @SuppressWarnings("unchecked")
-    void configuredValueSerializer_writesDatesAsArraysAndNoTypeInfo() {
-        KafkaProducerConfig config = new KafkaProducerConfig();
-        ReflectionTestUtils.setField(config, "bootstrapServers", "localhost:0");
-        Serializer<Object> serializer = (Serializer<Object>)
-                ((DefaultKafkaProducerFactory<String, Object>) config.producerFactory()).getValueSerializer();
-        var headers = new org.apache.kafka.common.header.internals.RecordHeaders();
+    void publishOrderCancelled_queuesARecordForOrderCancelledKeyedByOrderId() {
+        producer.publishOrderCancelled(OrderCancelledEvent.builder().orderId(42L).customerId("user1").cancelledAt(TIME).build());
 
-        byte[] bytes = serializer.serialize("order.placed", headers, placedEvent());
-        JsonNode json = new ObjectMapper().readTree(bytes);
+        OutboxEvent row = saved();
+        assertThat(row.getTopic()).isEqualTo("order.cancelled");
+        assertThat(row.getEventKey()).isEqualTo("42");
+    }
 
-        assertThat(headers.toArray()).isEmpty();
+    /** java.time as numeric arrays, BigDecimal as a number: what every consumer and the Pact contracts pin. */
+    @Test
+    void payload_writesDatesAsArrays() {
+        producer.publishOrderPlaced(placedEvent());
+
+        JsonNode json = new ObjectMapper().readTree(saved().getPayload());
+
         assertThat(json.get("orderId").asLong()).isEqualTo(42L);
         assertThat(json.get("customerId").asString()).isEqualTo("user1");
         assertThat(json.get("totalAmount").decimalValue()).isEqualByComparingTo("59.98");
@@ -88,18 +95,26 @@ class OrderEventProducerTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
-    void configuredValueSerializer_writesCancelledAtAsArray() {
-        KafkaProducerConfig config = new KafkaProducerConfig();
-        ReflectionTestUtils.setField(config, "bootstrapServers", "localhost:0");
-        Serializer<Object> serializer = (Serializer<Object>)
-                ((DefaultKafkaProducerFactory<String, Object>) config.producerFactory()).getValueSerializer();
+    void payload_writesCancelledAtAsArray() {
+        producer.publishOrderCancelled(OrderCancelledEvent.builder().orderId(42L).customerId("user1").cancelledAt(TIME.withNano(0)).build());
 
-        byte[] bytes = serializer.serialize("order.cancelled",
-                OrderCancelledEvent.builder().orderId(42L).customerId("user1").cancelledAt(TIME.withNano(0)).build());
-        JsonNode json = new ObjectMapper().readTree(bytes);
+        JsonNode json = new ObjectMapper().readTree(saved().getPayload());
 
         assertThat(json.get("cancelledAt").toString()).isEqualTo("[2026,10,29,14,5,30]");
         assertThat(json.get("orderId").asLong()).isEqualTo(42L);
+    }
+
+    /** The outbox row holds exactly the bytes the JacksonJsonSerializer producer used to put on the topic. */
+    @Test
+    void payload_isByteForByteWhatTheOldSerializerWrote() {
+        OrderPlacedEvent event = placedEvent();
+        JacksonJsonSerializer<Object> legacy = new JacksonJsonSerializer<>(KafkaProducerConfig.eventJsonMapper()).noTypeInfo();
+        RecordHeaders headers = new RecordHeaders();
+
+        producer.publishOrderPlaced(event);
+
+        assertThat(saved().getPayload().getBytes(StandardCharsets.UTF_8))
+                .isEqualTo(legacy.serialize("order.placed", headers, event));
+        assertThat(headers.toArray()).as("no type headers").isEmpty();
     }
 }

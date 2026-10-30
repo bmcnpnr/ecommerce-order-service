@@ -12,29 +12,28 @@ import com.ecommerce.order.client.ProductServiceClient;
 import com.ecommerce.order.model.Order;
 import com.ecommerce.order.model.OrderItem;
 import com.ecommerce.order.model.OrderStatus;
+import com.ecommerce.order.outbox.OutboxEvent;
+import com.ecommerce.order.outbox.OutboxEventRepository;
 import com.ecommerce.order.repository.OrderRepository;
 import com.ecommerce.order.service.OrderService;
-import org.apache.kafka.common.header.internals.RecordHeaders;
-import org.apache.kafka.common.serialization.Serializer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.TestTemplate;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -47,11 +46,9 @@ import static org.mockito.Mockito.when;
  * {@code src/test/resources/pacts/}, see {@code ecommerce-platform/sync-pacts.sh}).
  * For each interaction this class produces the record the way production does: the
  * real {@link OrderService} builds the event from the order, the real
- * {@code OrderEventProducer} hands it to the {@code KafkaTemplate} (mocked here to
- * capture topic, key and payload), and the payload is serialized with the value
- * serializer configured on the production {@link ProducerFactory} (spring-kafka's
- * {@code JacksonJsonSerializer}, no type headers). Pact then matches bytes and metadata
- * against the consumer's expectations.
+ * {@code OrderEventProducer} serializes it and writes it to the outbox table (the repository is
+ * mocked here to capture topic, key and payload; {@code OutboxRelay} sends exactly these bytes
+ * to Kafka). Pact then matches bytes and metadata against the consumer's expectations.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @ActiveProfiles("test")
@@ -62,9 +59,6 @@ class OrderEventsProviderPactTest {
     @Autowired
     private OrderService orderService;
 
-    @Autowired
-    private ProducerFactory<String, Object> producerFactory;
-
     @MockitoBean
     private OrderRepository orderRepository;
 
@@ -72,7 +66,7 @@ class OrderEventsProviderPactTest {
     private ProductServiceClient productServiceClient; // cancelOrder restores stock through it; not under test here
 
     @MockitoBean
-    private KafkaTemplate<String, Object> kafkaTemplate;
+    private OutboxEventRepository outboxRepository;
 
     @BeforeEach
     void setTarget(PactVerificationContext context) {
@@ -117,30 +111,20 @@ class OrderEventsProviderPactTest {
 
     private void stubOrder(OrderStatus status) {
         reset(orderRepository);
-        reset(kafkaTemplate);
+        reset(outboxRepository);
         when(orderRepository.findById(7L)).thenAnswer(inv -> Optional.of(order(status)));
         when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
-    /** The (topic, key, value) the production code handed to KafkaTemplate, serialized exactly as the producer would. */
+    /** The (topic, key, value) the production code wrote to the outbox: the bytes OutboxRelay will send. */
     private MessageAndMetadata capturedRecord(String expectedTopic) {
-        ArgumentCaptor<String> key = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<Object> value = ArgumentCaptor.forClass(Object.class);
-        verify(kafkaTemplate).send(eq(expectedTopic), key.capture(), value.capture());
-        byte[] bytes = valueSerializer().serialize(expectedTopic, new RecordHeaders(), value.getValue());
-        return new MessageAndMetadata(bytes, Map.of(
+        ArgumentCaptor<OutboxEvent> row = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxRepository).save(row.capture());
+        assertThat(row.getValue().getTopic()).isEqualTo(expectedTopic);
+        return new MessageAndMetadata(row.getValue().getPayload().getBytes(StandardCharsets.UTF_8), Map.of(
                 "contentType", "application/json",
                 "kafka_topic", expectedTopic,
-                "kafka_key", key.getValue()));
-    }
-
-    /** The value serializer instance the production ProducerFactory hands to the Kafka client. */
-    private Serializer<Object> valueSerializer() {
-        Serializer<Object> serializer = producerFactory.getValueSerializer();
-        if (serializer == null) {
-            throw new IllegalStateException("The production ProducerFactory configures no value serializer instance");
-        }
-        return serializer;
+                "kafka_key", row.getValue().getEventKey()));
     }
 
     private static Order order(OrderStatus status) {
